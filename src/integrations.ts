@@ -26,5 +26,11 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
-  // openai: { billing: 'developer', anonymous: true },
+  // Regroup's integrations are owner-billed but only ever called from server
+  // actions / cron (never directly from the browser), and every action
+  // requires a signed-in caller plus organizer checks and cooldowns.
+  openweathermap: { billing: 'developer' },
+  serpapi: { billing: 'developer' },
+  anthropic: { billing: 'developer' },
+  email: { billing: 'developer' },
 }

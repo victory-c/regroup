@@ -71,8 +71,13 @@ export default function Navigation() {
     <>
       <nav data-testid="app-navigation" className="border-b border-border bg-background">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
-            {APP_NAME}
+          <Link
+            to="/home"
+            aria-label={`${APP_NAME} home`}
+            className="flex items-center gap-1.5 font-display text-xl font-extrabold uppercase tracking-tight text-foreground"
+          >
+            <span aria-hidden className="inline-block size-2.5 rotate-45 bg-primary" />
+            Regroup
           </Link>
 
           <div className="hidden items-center md:flex">{visibleNav.map(navLink)}</div>
