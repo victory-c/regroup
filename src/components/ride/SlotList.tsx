@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useAuth, useMutations, useUserLookup, getUserColor } from 'deepspace'
-import { Check, HelpCircle, Lock, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { Lock, Plus, Trash2 } from 'lucide-react'
 import { Button, Input, useToast } from '../ui'
 import { WeatherChip } from '../WeatherChip'
+import { ForecastStrip } from '../ForecastStrip'
 import type { Ride, Slot, Vote, VoteChoice } from '../../lib/types'
 import { fmtDay, fmtTime, nextWeekdayAt, toLocalInput } from '../../lib/format'
 import { cn } from '../../lib/utils'
@@ -21,15 +22,10 @@ interface Props {
   locking: string | null
 }
 
-const CHOICES: Array<{ value: VoteChoice; label: string; icon: React.ReactNode; on: string }> = [
-  { value: 'yes', label: 'In', icon: <Check aria-hidden />, on: 'border-[#2e7d32] bg-[#e3f1e4] text-[#1f5f2a]' },
-  {
-    value: 'maybe',
-    label: 'Maybe',
-    icon: <HelpCircle aria-hidden />,
-    on: 'border-[#b7791f] bg-[#fbefd6] text-[#7a5207]',
-  },
-  { value: 'no', label: 'Out', icon: <X aria-hidden />, on: 'border-[#9b2c2c] bg-[#f9e1dc] text-[#8f2414]' },
+const CHOICES: Array<{ value: VoteChoice; label: string }> = [
+  { value: 'yes', label: 'In' },
+  { value: 'maybe', label: 'Maybe' },
+  { value: 'no', label: 'Out' },
 ]
 
 export function SlotList({
@@ -66,64 +62,63 @@ export function SlotList({
 
   return (
     <section aria-labelledby="when-heading">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 id="when-heading" className="font-display text-2xl font-bold uppercase tracking-wide">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="when-heading" className="text-xl font-semibold">
           When
         </h2>
-        <span className="text-xs text-muted-foreground">
-          {scoring ? 'Updating forecast…' : 'Weather scored from a 5-day, 3-hour forecast'}
+        <span className="text-sm text-muted-foreground">
+          {scoring ? 'Updating the forecast' : 'Scored on the forecast for the whole ride'}
         </span>
       </div>
 
       {sorted.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          No times yet. Propose a few below — everyone can add options and vote.
+        <p className="rounded-xl border border-dashed border-input bg-card p-6 text-center text-sm text-muted-foreground">
+          No times yet. Propose a few below, and anyone in the group can add more.
         </p>
       ) : (
-        <ol className="space-y-2">
+        <ol className="space-y-3">
           {sorted.map((s) => {
             const sv = votes.filter((v) => v.data.slotId === s.recordId)
             const mine = sv.find((v) => v.data.userId === userId)?.data.choice
             const yes = sv.filter((v) => v.data.choice === 'yes')
             const maybe = sv.filter((v) => v.data.choice === 'maybe')
             const isLocked = ride.lockedSlotId === s.recordId
-            const canDelete = !locked && (s.createdBy === userId || false)
+            const isRecommended = !locked && recommended === s.recordId
+            const canDelete = !locked && s.createdBy === userId
+            const showStrip = s.data.weather?.status === 'ok'
             return (
               <li
                 key={s.recordId}
                 data-testid="slot-row"
                 className={cn(
-                  'rounded-lg border bg-card p-3 sm:p-4',
-                  isLocked ? 'border-primary ring-2 ring-primary/30' : 'border-border',
+                  'rounded-xl border bg-card p-4 sm:p-5',
+                  isLocked || isRecommended ? 'border-primary' : 'border-border',
                   locked && !isLocked && 'opacity-60',
                 )}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-display text-xl font-bold leading-none">
-                        {fmtDay(s.data.startsAt)}
-                      </span>
-                      <span className="font-display text-xl font-semibold leading-none text-muted-foreground">
-                        {fmtTime(s.data.startsAt)}
-                      </span>
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <p className="text-lg font-semibold tabular-nums">
+                        {fmtDay(s.data.startsAt)}, {fmtTime(s.data.startsAt)}
+                      </p>
                       {isLocked && (
-                        <span className="inline-flex items-center gap-1 rounded bg-primary px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary-foreground">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
                           <Lock aria-hidden className="size-3" /> Locked
                         </span>
                       )}
-                      {!locked && recommended === s.recordId && (
-                        <span className="inline-flex items-center gap-1 rounded border border-primary/40 bg-accent px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                          <Sparkles aria-hidden className="size-3" /> Brief pick
-                        </span>
+                      {isRecommended && (
+                        <span className="text-sm font-medium text-primary-ink">Recommended by the brief</span>
                       )}
                     </div>
-                    <div className="mt-2">
-                      <WeatherChip weather={s.data.weather} pending={scoring} />
-                    </div>
+                    <WeatherChip weather={s.data.weather} pending={scoring} />
                   </div>
 
-                  <div className="flex items-center gap-1" role="group" aria-label={`Your vote for ${fmtDay(s.data.startsAt)} ${fmtTime(s.data.startsAt)}`}>
+                  <div
+                    role="group"
+                    aria-label={`Your vote for ${fmtDay(s.data.startsAt)} ${fmtTime(s.data.startsAt)}`}
+                    className="inline-flex rounded-lg border border-input bg-background p-0.5"
+                  >
                     {CHOICES.map((c) => (
                       <button
                         key={c.value}
@@ -132,42 +127,40 @@ export function SlotList({
                         disabled={!voteMut.ready || locked}
                         onClick={() => vote(s.recordId, c.value)}
                         className={cn(
-                          'inline-flex h-8 items-center gap-1 rounded border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3.5',
+                          'h-8 min-w-14 rounded-md px-3 text-sm font-medium transition-colors duration-150 ease-(--ease-out-soft) disabled:cursor-not-allowed disabled:opacity-50',
+                          'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring',
                           mine === c.value
-                            ? c.on
-                            : 'border-border bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground',
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
                         )}
                       >
-                        {c.icon}
                         {c.label}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border pt-3">
+                {showStrip && (
+                  <ForecastStrip
+                    className="mt-5 max-w-md"
+                    entries={ride.forecastCache?.entries}
+                    startsAt={s.data.startsAt}
+                    durationHours={ride.durationHours ?? 2}
+                  />
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
                   <TallyBar yes={yes.length} maybe={maybe.length} no={sv.length - yes.length - maybe.length} />
-                  <div className="flex -space-x-1.5">
-                    {sv
+                  <Paceline
+                    riders={sv
                       .filter((v) => v.data.choice !== 'no')
-                      .slice(0, 8)
-                      .map((v) => {
-                        const u = getUser(v.data.userId ?? '')
-                        return (
-                          <span
-                            key={v.recordId}
-                            title={`${u?.name ?? 'Rider'} — ${v.data.choice === 'yes' ? 'in' : 'maybe'}`}
-                            className={cn(
-                              'grid size-6 place-items-center rounded-full border-2 border-card text-[10px] font-semibold text-white',
-                              v.data.choice === 'maybe' && 'opacity-60',
-                            )}
-                            style={{ background: getUserColor(v.data.userId ?? '') }}
-                          >
-                            {(u?.name?.[0] ?? '?').toUpperCase()}
-                          </span>
-                        )
-                      })}
-                  </div>
+                      .sort((a) => (a.data.choice === 'yes' ? -1 : 1))
+                      .map((v) => ({
+                        id: v.data.userId ?? v.recordId,
+                        name: getUser(v.data.userId ?? '')?.name ?? 'Rider',
+                        maybe: v.data.choice === 'maybe',
+                      }))}
+                  />
                   <div className="ml-auto flex items-center gap-1">
                     {canDelete && (
                       <Button
@@ -211,19 +204,45 @@ export function SlotList({
 function TallyBar({ yes, maybe, no }: { yes: number; maybe: number; no: number }) {
   const total = yes + maybe + no
   return (
-    <div className="flex items-center gap-2 text-xs tabular-nums text-muted-foreground">
-      <div className="flex h-1.5 w-24 overflow-hidden rounded-full bg-secondary" aria-hidden>
+    <div className="flex items-center gap-3 text-sm tabular-nums text-muted-foreground">
+      <div className="flex h-1.5 w-20 overflow-hidden rounded-full bg-secondary" aria-hidden>
         {total > 0 && (
           <>
-            <div className="bg-[#2e7d32]" style={{ width: `${(yes / total) * 100}%` }} />
-            <div className="bg-[#d69e2e]" style={{ width: `${(maybe / total) * 100}%` }} />
+            <div className="bg-foreground" style={{ width: `${(yes / total) * 100}%` }} />
+            <div className="bg-muted-foreground" style={{ width: `${(maybe / total) * 100}%` }} />
           </>
         )}
       </div>
       <span>
-        <strong className="text-foreground">{yes}</strong> in · {maybe} maybe · {no} out
+        <span className="font-semibold text-foreground">{yes}</span> in, {maybe} maybe, {no} out
       </span>
     </div>
+  )
+}
+
+/** Signature detail: riders who are in, single file like a paceline. */
+function Paceline({ riders }: { riders: Array<{ id: string; name: string; maybe: boolean }> }) {
+  if (riders.length === 0) return null
+  const shown = riders.slice(0, 8)
+  return (
+    <ol className="flex items-center gap-1" aria-label={riders.map((r) => `${r.name}${r.maybe ? ' (maybe)' : ''}`).join(', ')}>
+      {shown.map((r) => (
+        <li
+          key={r.id}
+          title={`${r.name}${r.maybe ? ', maybe' : ''}`}
+          className={cn(
+            'grid size-6 place-items-center rounded-full text-[11px] font-semibold text-white',
+            r.maybe && 'opacity-50',
+          )}
+          style={{ background: getUserColor(r.id) }}
+        >
+          {(r.name[0] ?? '?').toUpperCase()}
+        </li>
+      ))}
+      {riders.length > shown.length && (
+        <li className="text-xs text-muted-foreground">+{riders.length - shown.length}</li>
+      )}
+    </ol>
   )
 }
 
@@ -259,8 +278,8 @@ function AddSlot({ rideId, existing, onAdded }: { rideId: string; existing: numb
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-dashed border-border p-3">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Propose a time</p>
+    <div className="mt-4 rounded-xl border border-dashed border-input p-4">
+      <p className="mb-3 text-sm font-medium">Propose a time</p>
       <div className="flex flex-wrap items-center gap-2">
         {quick.map((q) => (
           <Button

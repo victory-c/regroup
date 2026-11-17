@@ -18,9 +18,9 @@
 
 export const THEMES = [
   {
-    id: 'hivis',
-    label: 'Hi-vis',
-    description: 'Regroup: warm paper, ink, and signal orange like a hi-vis vest.',
+    id: 'asphalt',
+    label: 'Asphalt',
+    description: 'Regroup: cool road-grey neutrals with one ember-orange accent.',
   },
   {
     id: 'slate',
@@ -38,9 +38,9 @@ export type ThemeId = (typeof THEMES)[number]['id']
 
 /** Read the currently active theme id from <html data-theme>. */
 export function getActiveTheme(): ThemeId {
-  if (typeof document === 'undefined') return 'hivis'
+  if (typeof document === 'undefined') return 'asphalt'
   const id = document.documentElement.getAttribute('data-theme') as ThemeId | null
-  return id ?? 'hivis'
+  return id ?? 'asphalt'
 }
 
 /** Look up a theme entry by id, or fall back to the first theme. */

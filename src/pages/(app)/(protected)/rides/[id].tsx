@@ -91,15 +91,15 @@ export default function RidePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:py-8">
+    <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
       <Link to="/home" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft aria-hidden className="size-4" /> Ride board
       </Link>
 
-      <header className="mb-6 border-b border-border pb-5">
+      <header className="mb-8 border-b border-border pb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="font-display text-4xl font-extrabold uppercase leading-none tracking-tight sm:text-5xl">
+            <h1 className="text-3xl font-semibold leading-tight tracking-[-0.01em] sm:text-4xl">
               {ride.title}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -130,7 +130,7 @@ export default function RidePage() {
           </div>
         </div>
 
-        <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <Meta icon={<MapPin aria-hidden />} label="Start" value={ride.startArea} />
           <Meta icon={<Clock aria-hidden />} label="Duration" value={`${ride.durationHours ?? 2} h`} />
           {ride.distanceMi ? <Meta icon={<Route aria-hidden />} label="Distance" value={`${ride.distanceMi} mi`} /> : null}
@@ -139,7 +139,7 @@ export default function RidePage() {
         {ride.notes && <p className="mt-3 max-w-2xl whitespace-pre-line text-sm">{ride.notes}</p>}
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0">
           <SlotList
             rideId={id}
@@ -207,7 +207,7 @@ export default function RidePage() {
 
 function Meta({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-1.5 [&_svg]:size-4 [&_svg]:text-primary">
+    <div className="flex items-center gap-2 [&_svg]:size-4 [&_svg]:text-muted-foreground">
       {icon}
       <dt className="sr-only">{label}</dt>
       <dd>{value}</dd>
@@ -219,22 +219,19 @@ function PresenceStack({ here }: { here: Array<{ userId: string; userName: strin
   if (here.length === 0) return null
   return (
     <div className="flex items-center gap-2" data-testid="presence" aria-label={`${here.length} other rider(s) viewing`}>
-      <div className="flex -space-x-1.5">
+      <div className="flex items-center gap-1">
         {here.slice(0, 5).map((p) => (
           <span
             key={p.userId}
             title={`${p.userName} is here`}
-            className="grid size-7 place-items-center rounded-full border-2 border-background text-[11px] font-semibold text-white"
+            className="grid size-7 place-items-center rounded-full text-[11px] font-semibold text-white"
             style={{ background: getUserColor(p.userId) }}
           >
             {(p.userName?.[0] ?? '?').toUpperCase()}
           </span>
         ))}
       </div>
-      <span className="hidden text-xs text-muted-foreground sm:inline">
-        <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-[#2e7d32] align-middle" />
-        {here.length} here now
-      </span>
+      <span className="hidden text-sm text-muted-foreground sm:inline">{here.length} here now</span>
     </div>
   )
 }

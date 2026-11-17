@@ -1,104 +1,172 @@
 /**
- * Static landing page (no auth fetch, no WebSocket) — prerendered at build.
- * Layout: split hero — the pitch on the left, a static rendering of the real
- * slot-voting surface on the right, so the page shows the product instead of
- * describing it.
+ * Design Direction
+ *
+ * Product: Regroup helps a small cycling group pick a ride time everyone can make,
+ *   scored against the forecast, with a coffee stop and a short ride brief.
+ * Emotion: the calm of a captain who already checked the radar before the group chat woke up.
+ * Metaphor: the forecast laid under the ride: the hours you'll be out, bracketed like a
+ *   route on a cue sheet.
+ * References: a cycling cue sheet taped to a top tube; a weather radar loop; road signage (DIN).
+ * Signature: the forecast strip, 3-hour buckets with the ride window bracketed in ember orange.
+ * Hero: a real ride being decided: three proposed times, live votes, the dry one recommended.
+ *
+ * Style Tile
+ * - Color: cool asphalt-grey neutrals, one ember-orange accent (hi-vis kit), low saturation.
+ * - Type: Barlow for everything; DIN-like road-signage letterforms, clear at small sizes,
+ *   sentence case, 400/500/600.
+ * - Theme: light; it's checked on a phone the night before, often outdoors in the morning.
+ * - Art direction: product-as-hero; the slot board rendered in code with plausible data.
+ * - Motion: still; the only motion is the app responding to votes.
+ * - Voice: plain verbs; specific about weather and time; never hype.
+ *
+ * Static page (no providers, no websocket), prerendered at build.
  */
 
 import { Link } from 'react-router-dom'
 import { Seo } from '../components/Seo'
+import { ForecastStrip } from '../components/ForecastStrip'
+import { WeatherChip } from '../components/WeatherChip'
+import { RegroupMark } from '../components/Navigation'
 import { seo } from '../seo'
+import type { SlotWeather } from '../lib/types'
+import { cn } from '../lib/utils'
 
-const SAMPLE = [
-  { day: 'Sat', time: '8:00 AM', label: 'Rough', detail: '51°F · heavy rain', tone: 'bg-[#f9e1dc] text-[#8f2414] border-[#efbcb2]', yes: 5, maybe: 1 },
-  { day: 'Sat', time: '1:00 PM', label: 'Iffy', detail: '55°F · light rain', tone: 'bg-[#fbefd6] text-[#7a5207] border-[#efd6a0]', yes: 3, maybe: 2 },
-  { day: 'Sun', time: '9:00 AM', label: 'Great', detail: '58°F · few clouds', tone: 'bg-[#e3f1e4] text-[#1f5f2a] border-[#bfdcc3]', yes: 6, maybe: 1, pick: true },
+// Sample ride, Berkeley, pinned to fixed instants so prerender and hydration agree.
+const TZ = 'America/Los_Angeles'
+const SUN_9 = Date.UTC(2026, 10, 22, 17) // Sun 9:00 AM PT
+const H = 3600
+const SAMPLE_FORECAST = [
+  { off: -3, temp: 49, description: 'few clouds', icon: '02d' },
+  { off: 0, temp: 54, description: 'few clouds', icon: '02d' },
+  { off: 3, temp: 60, description: 'clear sky', icon: '01d' },
+  { off: 6, temp: 61, description: 'scattered clouds', icon: '03d' },
+].map((e) => ({ dt: SUN_9 / 1000 + e.off * H, temp: e.temp, feels_like: e.temp, humidity: 60, description: e.description, icon: e.icon }))
+
+const w = (label: 'Great' | 'Iffy' | 'Rough', score: number, tempF: number, reasons: string[]): SlotWeather => ({
+  status: 'ok',
+  score,
+  label,
+  tempF,
+  feelsF: tempF,
+  description: reasons[0],
+  icon: '',
+  reasons,
+  fetchedAt: 0,
+})
+
+const SLOTS = [
+  { when: 'Sat, 8:00 AM', weather: w('Rough', 32, 51, ['heavy rain', 'chilly']), yes: 5, maybe: 1 },
+  { when: 'Sat, 1:00 PM', weather: w('Iffy', 52, 55, ['light rain']), yes: 3, maybe: 2 },
+  { when: 'Sun, 9:00 AM', weather: w('Great', 100, 54, ['dry, comfortable temps']), yes: 6, maybe: 1, pick: true },
 ]
+const RIDERS = ['Maya', 'Jordan', 'Sam', 'Priya', 'Leo', 'Ana']
 
 export default function Landing() {
   return (
     <>
       <Seo {...seo} path="/" />
       <div data-testid="static-landing" className="min-h-screen bg-background text-foreground">
-        <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
-          <span className="flex items-center gap-1.5 font-display text-xl font-extrabold uppercase tracking-tight">
-            <span aria-hidden className="inline-block size-2.5 rotate-45 bg-primary" />
+        <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <span className="flex items-center gap-2 text-lg font-semibold">
+            <RegroupMark />
             Regroup
           </span>
-          <Link to="/home" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-            Open the ride board →
+          <Link to="/home" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+            Open the ride board
           </Link>
         </header>
 
-        <main className="mx-auto grid max-w-6xl items-center gap-12 px-5 pb-20 pt-8 lg:grid-cols-[1.1fr_1fr] lg:pt-16">
+        <main className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-10 lg:min-h-[calc(100vh-4rem)] lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:pt-0">
           <section>
-            <p className="mb-4 font-display text-sm font-bold uppercase tracking-[0.2em] text-primary">
-              Group ride planning
-            </p>
-            <h1 className="font-display text-5xl font-extrabold uppercase leading-[0.92] tracking-tight sm:text-7xl">
-              Pick the ride time
-              <br />
-              everyone can make
-              <br />
-              <span className="text-primary">and the rain can’t.</span>
+            <h1 className="text-[2.5rem] font-semibold leading-[1.04] tracking-[-0.03em] sm:text-6xl">
+              <span className="block">Pick the ride time.</span>
+              <span className="block">Beat the rain.</span>
             </h1>
-            <p className="mt-6 max-w-lg text-lg text-muted-foreground">
-              Propose a few start times. Riders vote live, each slot is scored against the forecast, and an AI
-              ride brief recommends one, checks your coffee stop is open, and tells everyone what to wear.
-              Lock it, and reminders go out the day before.
+            <p className="mt-6 max-w-md text-lg leading-relaxed text-muted-foreground">
+              Propose a few start times and your group votes live. Every option is scored on the forecast for
+              the whole ride, and a short brief picks the winner and checks the coffee stop is open.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
                 to="/home"
-                className="inline-flex h-11 items-center rounded-md bg-primary px-6 font-medium text-primary-foreground transition-opacity hover:opacity-90"
+                className="inline-flex h-12 items-center rounded-lg bg-primary px-6 font-medium text-primary-foreground transition-colors hover:bg-primary-ink"
               >
                 Plan a ride
               </Link>
-              <span className="text-sm text-muted-foreground">Free, sign in with Google or GitHub.</span>
+              <span className="text-sm text-muted-foreground">Free, sign in with Google or GitHub</span>
             </div>
           </section>
 
-          <section aria-label="Example: voting on ride times" className="rounded-xl border border-border bg-card p-5 shadow-[0_12px_40px_-20px_rgba(22,24,29,0.35)]">
-            <p className="font-display text-2xl font-bold uppercase">Sunday hills, 35 mi</p>
-            <p className="mb-4 text-xs text-muted-foreground">Berkeley, California · steady pace · 7 riders voting</p>
-            <ol className="space-y-2">
-              {SAMPLE.map((s) => (
+          <section
+            aria-label="Example: a group voting on ride times"
+            className="rounded-2xl border border-border bg-card p-6 shadow-float"
+          >
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="text-xl font-semibold">Sunday hills, 35 mi</p>
+              <p className="text-sm text-muted-foreground tabular-nums">7 riders</p>
+            </div>
+            <p className="mb-5 text-sm text-muted-foreground">Berkeley, steady pace, 2 hours</p>
+
+            <ol className="space-y-3">
+              {SLOTS.map((s) => (
                 <li
-                  key={s.day + s.time}
-                  className={`rounded-lg border p-3 ${s.pick ? 'border-primary ring-2 ring-primary/30' : 'border-border'}`}
+                  key={s.when}
+                  className={cn('rounded-xl border p-4', s.pick ? 'border-primary' : 'border-border')}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-display text-lg font-bold">
-                      {s.day} <span className="text-muted-foreground">{s.time}</span>
-                    </span>
-                    {s.pick && (
-                      <span className="rounded bg-primary px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary-foreground">
-                        Brief pick
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <p className="font-semibold tabular-nums">{s.when}</p>
+                    {s.pick ? (
+                      <span className="text-sm font-medium text-primary-ink">Recommended</span>
+                    ) : (
+                      <span className="text-sm tabular-nums text-muted-foreground">
+                        {s.yes} in, {s.maybe} maybe
                       </span>
                     )}
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className={`rounded border px-2 py-0.5 font-medium ${s.tone}`}>
-                      <strong>{s.label}</strong> · {s.detail}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">
-                      <strong className="text-foreground">{s.yes}</strong> in · {s.maybe} maybe
-                    </span>
+                  <div className="mt-1">
+                    <WeatherChip weather={s.weather} />
                   </div>
+                  {s.pick && (
+                    <>
+                      <ForecastStrip
+                        className="mt-5"
+                        entries={SAMPLE_FORECAST}
+                        startsAt={SUN_9}
+                        durationHours={2}
+                        timeZone={TZ}
+                      />
+                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                        <ol className="flex items-center gap-1" aria-label={`${RIDERS.join(', ')} are in`}>
+                          {RIDERS.map((r) => (
+                            <li
+                              key={r}
+                              className="grid size-6 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-background"
+                            >
+                              {r[0]}
+                            </li>
+                          ))}
+                        </ol>
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                          <span className="font-semibold text-foreground">{s.yes}</span> in, {s.maybe} maybe
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </li>
               ))}
             </ol>
-            <p className="mt-4 rounded-md bg-accent p-3 text-sm">
-              <strong>Brief:</strong> Sunday 9am has the most riders and stays dry. The Hidden Cafe opens at 8:30, so
-              the mid-ride stop works. Bring a vest for the descent.
+
+            <p className="mt-4 rounded-xl bg-secondary p-4 text-sm leading-relaxed">
+              <span className="font-semibold">Brief:</span> Sunday 9am has the most riders and stays dry. The
+              Hidden Cafe opens at 8:30, so the top-of-the-climb stop works. Bring a vest for the descent.
             </p>
           </section>
         </main>
 
         <footer className="border-t border-border">
-          <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-2 px-5 py-6 text-xs text-muted-foreground">
-            <span>Built on DeepSpace.</span>
-            <span>Weather: OpenWeatherMap · Places: Google Maps via SerpApi · Brief: Claude</span>
+          <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-2 px-6 py-6 text-sm text-muted-foreground">
+            <span>Built on DeepSpace</span>
+            <span>Forecasts from OpenWeatherMap, places from Google Maps, briefs written by Claude</span>
           </div>
         </footer>
       </div>

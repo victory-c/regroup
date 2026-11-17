@@ -61,7 +61,7 @@ test('two riders plan, vote, lock and RSVP in realtime', async ({ users }) => {
     await expect(a.page.getByTestId('slot-row')).toHaveCount(1)
     // Either a scored chip or an honest "out of range" note — never stuck pending.
     await expect(
-      a.page.getByTestId('slot-row').getByText(/Great|Good|Iffy|Rough|Forecast only covers|passed/),
+      a.page.getByTestId('slot-row').getByText(/^(Great|Good|Iffy|Rough)$|Forecast only covers|passed/),
     ).toBeVisible({ timeout: 30_000 })
 
     // ── B opens the same ride; presence shows on A's page ───────────────
@@ -93,8 +93,8 @@ test('two riders plan, vote, lock and RSVP in realtime', async ({ users }) => {
     await expect(a.page.getByTestId('rsvp-panel')).toContainText('1 going', { timeout: 15_000 })
 
     // ── A generates the AI brief; B sees it ─────────────────────────────
-    await a.page.getByTestId('brief-panel').getByRole('button', { name: 'Generate' }).click()
-    await expect(b.page.getByTestId('brief-panel').locator('p.font-display')).toBeVisible({
+    await a.page.getByTestId('brief-panel').getByRole('button', { name: 'Write brief' }).click()
+    await expect(b.page.getByTestId('brief-headline')).toBeVisible({
       timeout: 60_000,
     })
   } finally {

@@ -49,6 +49,20 @@ Live: https://regroup.app.space · Built on [DeepSpace](https://docs.deep.space)
 
 **A smaller one: wind.** The platform's forecast endpoint returns temperature, humidity and conditions but **no wind speed or rain probability**. Wind matters a lot on a bike. I chose to stay on the platform integration (consistent billing, no extra keys) and say so plainly in the UI tooltip and the AI prompt ("do not invent wind"), rather than bolt on a second weather provider for one field.
 
+## Design
+
+The direction lives at the top of `src/pages/index.tsx`, following DeepSpace's own [design workflow](https://docs.deep.space/design/overview).
+
+- **Look:** cool asphalt-grey neutrals with one ember-orange accent (hi-vis kit, 4.6:1 with white text). One family throughout: Barlow, which has road-signage letterforms. Sentence case.
+- **Where orange appears:** only the primary action, the locked or recommended slot, and the ride window.
+- **The one rich element:** the forecast strip on each slot. It shows the 3-hour buckets around the slot with the ride window bracketed, built from the forecast already cached on the ride. It shows *why* a slot is "Iffy".
+- **Signature detail:** riders who are in appear single file, like a paceline.
+- **Checked against DeepSpace's [anti-AI gate](https://docs.deep.space/design/anti-ai-gate):**
+  - no hardcoded colors in JSX (status colors are theme tokens)
+  - no fractional foreground opacity
+  - no pictograph emoji
+  - a 7-word hero headline
+
 ## Running it
 
 ```sh

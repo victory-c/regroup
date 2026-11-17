@@ -218,7 +218,8 @@ Rules:
 - Only state facts present in the input. The forecast has no wind data; do not invent wind. Do not invent distances, routes, or places.
 - If a stop is given, check its hours on the recommended slot's weekday against the ride window (start + durationHours/2 is roughly when the group reaches it). Warn if it looks closed or the hours are unknown.
 - Warn about rain, cold, heat, out-of-range forecasts, or thin turnout (fewer than 3 yes votes).
-- Bullets: what to bring/wear for the recommended slot, the stop plan, and the pace. Keep each under 25 words.
+- Bullets: what to bring/wear for the recommended slot, the stop plan, and the pace.
+- Keep it short — it is read on a phone: headline at most 12 words, summary at most 50 words, at most 4 bullets and 3 warnings, each at most 20 words.
 - Respond with ONLY a JSON object: {"recommendedSlotId": string|null, "headline": string, "summary": string, "bullets": string[], "warnings": string[]}. No markdown fences.`
 
 export async function generateBrief(store: Store, callerId: string, rideId: string, now = Date.now()) {
@@ -244,12 +245,17 @@ export async function generateBrief(store: Store, callerId: string, rideId: stri
 
   const res = (await store.integration('anthropic/chat-completion', {
     model: BRIEF_MODEL,
-    max_tokens: 900,
+    // Headroom well above the ~300 tokens the word budgets in the prompt
+    // allow: a brief cut off mid-JSON is unusable, a long one gets clipped.
+    max_tokens: 2000,
     temperature: 0.3,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: JSON.stringify(context) }],
-  })) as { content?: Array<{ type: string; text?: string }> }
+  })) as { content?: Array<{ type: string; text?: string }>; stop_reason?: string }
 
+  if (res?.stop_reason === 'max_tokens') {
+    console.error('[brief] model output hit max_tokens; JSON is likely truncated')
+  }
   const text = (res?.content ?? [])
     .filter((c) => c.type === 'text')
     .map((c) => c.text ?? '')

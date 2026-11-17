@@ -77,15 +77,12 @@ function RideBoard() {
   const planning = cards.filter((c) => c.status === 'planning')
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:py-10">
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-4xl font-bold uppercase tracking-tight text-foreground sm:text-5xl">
-            Ride board
-          </h1>
-          <p className="mt-1 max-w-xl text-muted-foreground">
-            Propose a ride, let the group vote on times, and lock the slot with the best turnout and
-            weather.
+          <h1 className="text-3xl font-semibold tracking-[-0.01em] text-foreground sm:text-4xl">Ride board</h1>
+          <p className="mt-2 max-w-xl text-base text-muted-foreground">
+            Propose a ride, let the group vote on times, and lock the one with the best turnout and weather.
           </p>
         </div>
         <Button onClick={() => setCreating(true)} data-testid="new-ride">
@@ -130,9 +127,9 @@ function RideBoard() {
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold uppercase tracking-wide text-muted-foreground">
+      <h2 className="mb-3 flex items-baseline gap-2 text-base font-semibold text-foreground">
         {title}
-        <span className="text-sm tabular-nums">{count}</span>
+        <span className="text-sm font-normal tabular-nums text-muted-foreground">{count}</span>
       </h2>
       <div className="grid gap-3 sm:grid-cols-2">{children}</div>
     </section>
@@ -143,50 +140,48 @@ function RideCard({ c, preview }: { c: CardModel; preview?: boolean }) {
   const body = (
     <article
       data-testid="ride-card"
-      className="group flex h-full flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-foreground/30"
+      className="group flex h-full flex-col gap-4 rounded-xl border border-border bg-card p-5 transition-colors duration-150 hover:border-input"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate font-display text-xl font-bold leading-tight text-foreground">
-            {c.title}
-          </h3>
-          <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
-            <MapPin aria-hidden className="size-3 shrink-0" />
+          <h3 className="truncate text-lg font-semibold leading-tight text-foreground">{c.title}</h3>
+          <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-muted-foreground">
+            <MapPin aria-hidden className="size-3.5 shrink-0" />
             {c.startArea}
           </p>
         </div>
         {c.status === 'locked' ? (
-          <Badge variant="default" className="shrink-0 gap-1">
+          <Badge variant="default" className="shrink-0 gap-1 rounded-md">
             <Lock aria-hidden className="size-3" /> Locked
           </Badge>
         ) : (
-          <Badge variant="outline" className="shrink-0">
+          <Badge variant="outline" className="shrink-0 rounded-md text-muted-foreground">
             Voting
           </Badge>
         )}
       </div>
 
       <div className="flex items-center gap-2 text-sm">
-        <CalendarClock aria-hidden className="size-4 text-primary" />
+        <CalendarClock aria-hidden className="size-4 text-muted-foreground" />
         {c.when ? (
-          <span className="text-foreground">
-            {c.status === 'locked' ? '' : 'Earliest option: '}
-            <strong className="font-semibold">
-              {fmtDay(c.when)} · {fmtTime(c.when)}
-            </strong>
-            <span className="text-muted-foreground"> ({fmtRelative(c.when)})</span>
+          <span className="tabular-nums text-foreground">
+            {c.status === 'locked' ? '' : 'Earliest option '}
+            <span className="font-semibold">
+              {fmtDay(c.when)}, {fmtTime(c.when)}
+            </span>
+            <span className="text-muted-foreground">, {fmtRelative(c.when)}</span>
           </span>
         ) : (
           <span className="text-muted-foreground">No times proposed yet</span>
         )}
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Users aria-hidden className="size-3.5" />
+      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-sm text-muted-foreground tabular-nums">
+        <span className="flex items-center gap-1.5">
+          <Users aria-hidden className="size-4" />
           {c.status === 'locked'
             ? `${c.goingCount} going`
-            : `${c.voterCount} voted · ${c.slotCount} option${c.slotCount === 1 ? '' : 's'}`}
+            : `${c.voterCount} voted on ${c.slotCount} time${c.slotCount === 1 ? '' : 's'}`}
         </span>
         {c.pace && <span>{PACE_LABEL[c.pace]}</span>}
         {c.distanceMi ? <span>{c.distanceMi} mi</span> : null}
@@ -206,7 +201,7 @@ function BoardSkeleton() {
   return (
     <div className="grid gap-3 sm:grid-cols-2" aria-busy="true">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-36 animate-pulse rounded-lg border border-border bg-card" />
+        <div key={i} className="h-40 rounded-xl border border-border bg-card" />
       ))}
     </div>
   )
@@ -247,11 +242,11 @@ function PreviewBoard() {
     },
   ]
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:py-10">
+    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-4xl font-bold uppercase tracking-tight sm:text-5xl">Ride board</h1>
-          <p className="mt-1 max-w-xl text-muted-foreground">
+          <h1 className="text-3xl font-semibold tracking-[-0.01em] sm:text-4xl">Ride board</h1>
+          <p className="mt-2 max-w-xl text-base text-muted-foreground">
             Sign in to plan rides with your group. This is what the board looks like with a couple of rides on
             it.
           </p>

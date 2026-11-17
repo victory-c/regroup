@@ -36,20 +36,22 @@ export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendRem
   return (
     <section
       aria-labelledby="rsvp-heading"
-      className="rounded-lg border-2 border-primary bg-card p-4"
+      className="rounded-xl border border-primary bg-card p-5"
       data-testid="rsvp-panel"
     >
-      <h2 id="rsvp-heading" className="font-display text-xl font-bold uppercase tracking-wide">
-        Rolling out {ride.lockedStartsAt ? `${fmtDay(ride.lockedStartsAt)} · ${fmtTime(ride.lockedStartsAt)}` : ''}
+      <h2 id="rsvp-heading" className="text-lg font-semibold tabular-nums">
+        Rolling out {ride.lockedStartsAt ? `${fmtDay(ride.lockedStartsAt)}, ${fmtTime(ride.lockedStartsAt)}` : ''}
       </h2>
       {ride.lockedStartsAt && (
-        <p className="text-xs text-muted-foreground">{fmtRelative(ride.lockedStartsAt)} · meet at {ride.startArea}</p>
+        <p className="text-sm text-muted-foreground">
+          {fmtRelative(ride.lockedStartsAt)}, meeting in {ride.startArea.split(',')[0]}
+        </p>
       )}
 
-      <div className="mt-3 flex gap-2">
+      <div className="mt-4 flex gap-2">
         <Button
           className="flex-1"
-          variant={mine?.data.status === 'going' ? 'default' : 'outline'}
+          variant={mine?.data.status === 'going' ? 'default' : 'secondary'}
           aria-pressed={mine?.data.status === 'going'}
           disabled={!ready}
           onClick={() => set('going')}
@@ -68,10 +70,8 @@ export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendRem
         </Button>
       </div>
 
-      <div className="mt-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {going.length} going
-        </p>
+      <div className="mt-4">
+        <p className="text-sm font-medium tabular-nums">{going.length} going</p>
         <p className={cn('mt-1 text-sm', going.length === 0 && 'text-muted-foreground')}>
           {going.length === 0
             ? 'Nobody yet.'
@@ -79,12 +79,12 @@ export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendRem
         </p>
       </div>
 
-      <div className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
         {ride.reminderSentAt
           ? `Reminder emailed ${fmtRelative(ride.reminderSentAt)}.`
           : 'Riders who are in get a reminder email within 24 hours of the start.'}
         {isOrganizer && (
-          <Button size="sm" variant="ghost" className="ml-1 h-7 px-2" loading={sending} onClick={onSendReminder}>
+          <Button size="sm" variant="ghost" className="h-8 px-2" loading={sending} onClick={onSendReminder}>
             <Mail aria-hidden />
             Send now
           </Button>

@@ -28,6 +28,16 @@ import {
   DropdownMenuTrigger,
 } from './ui'
 
+/** Flat mark: a diamond road sign — the "regroup ahead" sign a ride stops at. */
+export function RegroupMark() {
+  return (
+    <svg aria-hidden viewBox="0 0 16 16" className="size-4">
+      <rect x="3" y="3" width="10" height="10" rx="1.5" transform="rotate(45 8 8)" className="fill-primary" />
+      <rect x="7.25" y="5" width="1.5" height="6" rx="0.75" className="fill-primary-foreground" />
+    </svg>
+  )
+}
+
 export default function Navigation() {
   const { isLoaded, isSignedIn, user, userLoading } = useAuthProfileReady({ requireUser: true })
   const location = useLocation()
@@ -74,9 +84,9 @@ export default function Navigation() {
           <Link
             to="/home"
             aria-label={`${APP_NAME} home`}
-            className="flex items-center gap-1.5 font-display text-xl font-extrabold uppercase tracking-tight text-foreground"
+            className="flex items-center gap-2 text-lg font-semibold text-foreground"
           >
-            <span aria-hidden className="inline-block size-2.5 rotate-45 bg-primary" />
+            <RegroupMark />
             Regroup
           </Link>
 

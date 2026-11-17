@@ -20,9 +20,9 @@ export function fmtRelative(ms: number, now = Date.now()) {
 }
 
 export const PACE_LABEL: Record<Pace, string> = {
-  social: 'Social · no-drop',
-  steady: 'Steady · conversational',
-  spirited: 'Spirited · some surges',
+  social: 'Social, no-drop',
+  steady: 'Steady, conversational',
+  spirited: 'Spirited, some surges',
   race: 'Race pace',
 }
 

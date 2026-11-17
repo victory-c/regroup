@@ -80,9 +80,7 @@ export function NewRideModal({ open, onClose }: { open: boolean; onClose: () => 
     <Modal open={open} onClose={onClose} size="lg">
       <Modal.Header>
         <Modal.Title>Plan a ride</Modal.Title>
-        <Modal.Description>
-          Propose times next, then let the group vote. Weather is checked against the start area.
-        </Modal.Description>
+        <Modal.Description>Next you’ll propose a few times for the group to vote on.</Modal.Description>
       </Modal.Header>
       <form onSubmit={submit} className="contents">
         <Modal.Body className="space-y-4">
@@ -137,13 +135,13 @@ export function NewRideModal({ open, onClose }: { open: boolean; onClose: () => 
                       aria-checked={active}
                       onClick={() => setPicked(c)}
                       className={cn(
-                        'inline-flex items-center gap-1 rounded border px-2 py-1 text-xs transition-colors',
+                        'inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors duration-150',
                         active
                           ? 'border-primary bg-accent text-foreground'
-                          : 'border-border text-muted-foreground hover:border-foreground/40',
+                          : 'border-border text-muted-foreground hover:border-input hover:text-foreground',
                       )}
                     >
-                      <MapPin aria-hidden className="size-3" />
+                      <MapPin aria-hidden className="size-3.5" />
                       {labelFor(c)}
                     </button>
                   )
@@ -198,7 +196,7 @@ export function NewRideModal({ open, onClose }: { open: boolean; onClose: () => 
             <Label htmlFor="ride-notes">Notes</Label>
             <Textarea
               id="ride-notes"
-              placeholder="Route link, regroup rules, who's sweeping…"
+              placeholder="Route link, regroup rules, who’s sweeping"
               value={notes}
               maxLength={500}
               rows={3}

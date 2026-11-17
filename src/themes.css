@@ -45,31 +45,33 @@
   --color-shell-panel: #ffffff;
 }
 
-/* Hi-vis — Regroup's theme. Warm paper and ink with one loud signal-orange
- * accent (the color of a hi-vis vest / road-closure sign). Tight radius so it
- * reads like printed race material rather than a soft consumer app. */
-[data-theme="hivis"] {
+/* Asphalt — Regroup's theme. Cool road-grey neutrals so the product reads as
+ * road and sky, not paper; one ember-orange accent (hi-vis kit) used only for
+ * the primary action, the locked/recommended slot and the ride-window bracket
+ * on the forecast strip. White on --color-primary is 4.6:1 (AA). */
+[data-theme="asphalt"] {
   color-scheme: light;
-  --color-background: #f6f4ef;
+  --color-background: #f5f6f8;
   --color-foreground: #16181d;
   --color-card: #ffffff;
   --color-card-foreground: #16181d;
   --color-popover: #ffffff;
   --color-popover-foreground: #16181d;
-  --color-primary: #e4572e;
+  --color-primary: #cc4a0e;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #ece9e1;
+  --color-primary-ink: #b3400b;
+  --color-secondary: #eceef1;
   --color-secondary-foreground: #16181d;
-  --color-muted: #ece9e1;
-  --color-muted-foreground: #5d6068;
-  --color-accent: #f6e7dc;
+  --color-muted: #eceef1;
+  --color-muted-foreground: #5b6270;
+  --color-accent: #fdf0e9;
   --color-accent-foreground: #16181d;
   --color-destructive: #c62828;
   --color-destructive-foreground: #ffffff;
-  --color-border: #ddd8cc;
-  --color-input: #d3cdbf;
-  --color-ring: #e4572e;
-  --radius: 0.375rem;
-  --color-shell: #f6f4ef;
+  --color-border: #e1e4e9;
+  --color-input: #d3d7de;
+  --color-ring: #cc4a0e;
+  --radius: 0.5rem;
+  --color-shell: #f5f6f8;
   --color-shell-panel: #ffffff;
 }
