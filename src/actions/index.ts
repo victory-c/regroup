@@ -14,9 +14,11 @@ import type { ActionHandler, ActionResult } from 'deepspace/worker'
 import type { Env } from '../../worker'
 import type { Ride } from '../lib/types'
 import {
+  addSlot,
   findStops,
   generateBrief,
   lockSlot,
+  removeSlot,
   scoreSlots,
   sendReminderForRide,
   UserFacingError,
@@ -41,6 +43,14 @@ export const actions: Record<string, ActionHandler<Env>> = {
   /** Any signed-in rider: (re)score every slot of a ride against the forecast. */
   scoreSlots: ({ params, tools }) =>
     run(() => scoreSlots(storeFromActionTools(tools), String(params.rideId ?? ''))),
+
+  /** Any signed-in rider: propose a start time on an unlocked ride. */
+  addSlot: ({ params, tools }) =>
+    run(() => addSlot(storeFromActionTools(tools), String(params.rideId ?? ''), Number(params.startsAt))),
+
+  /** Proposer or organizer: withdraw a time (and its votes) while planning. */
+  removeSlot: ({ params, tools, userId }) =>
+    run(() => removeSlot(storeFromActionTools(tools), userId, String(params.slotId ?? ''))),
 
   /** Organizer: search for mid-ride stops near the start area. */
   findStops: ({ params, tools, userId }) =>
@@ -68,7 +78,7 @@ export const actions: Record<string, ActionHandler<Env>> = {
       ),
     ),
 
-  /** Organizer: send the reminder email now instead of waiting for the cron. */
+  /** Organizer: email riders not yet reminded for this time, now instead of at the next cron tick. */
   sendReminderNow: ({ params, tools, userId, env }) =>
     run(async () => {
       const store = storeFromActionTools(tools)
@@ -79,8 +89,10 @@ export const actions: Record<string, ActionHandler<Env>> = {
       if (ride.data.reminderSentAt && Date.now() - ride.data.reminderSentAt < 10 * 60_000) {
         throw new UserFacingError('Reminder already sent in the last 10 minutes')
       }
-      const sent = await sendReminderForRide(store, ride, appOrigin(env))
-      return { sent }
+      const r = await sendReminderForRide(store, ride, appOrigin(env))
+      if (r.pending === 0) throw new UserFacingError('Everyone going has already been reminded')
+      if (r.sent === 0 && r.failed > 0) throw new UserFacingError('Reminder emails failed to send. They will be retried')
+      return r
     }),
 
   /** Organizer: delete a ride and everything hanging off it. */
@@ -91,7 +103,7 @@ export const actions: Record<string, ActionHandler<Env>> = {
       const ride = await store.get<Ride>('rides', rideId)
       if (!ride) throw new UserFacingError('Ride not found')
       if (ride.createdBy !== userId) throw new UserFacingError('Only the ride organizer can do that')
-      for (const coll of ['votes', 'rsvps', 'slots']) {
+      for (const coll of ['votes', 'rsvps', 'slots', 'reminders']) {
         // deleteWhere is paged; loop until a page comes back short.
         for (;;) {
           const r = await tools.deleteWhere(coll, { rideId }, 500)

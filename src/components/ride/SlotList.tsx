@@ -7,6 +7,7 @@ import { ForecastStrip } from '../ForecastStrip'
 import type { Ride, Slot, Vote, VoteChoice } from '../../lib/types'
 import { fmtDay, fmtTime, nextWeekdayAt, toLocalInput } from '../../lib/format'
 import { cn } from '../../lib/utils'
+import { callAction } from '../../lib/actions'
 
 type Rec<T> = { recordId: string; createdBy: string; data: T }
 
@@ -41,7 +42,6 @@ export function SlotList({
 }: Props) {
   const { userId } = useAuth()
   const { getUser } = useUserLookup()
-  const slotMut = useMutations<Slot>('slots')
   const voteMut = useMutations<Vote>('votes')
   const { error } = useToast()
 
@@ -84,7 +84,7 @@ export function SlotList({
             const maybe = sv.filter((v) => v.data.choice === 'maybe')
             const isLocked = ride.lockedSlotId === s.recordId
             const isRecommended = !locked && recommended === s.recordId
-            const canDelete = !locked && s.createdBy === userId
+            const canDelete = !locked && (s.createdBy === userId || isOrganizer)
             const showStrip = s.data.weather?.status === 'ok'
             return (
               <li
@@ -167,7 +167,10 @@ export function SlotList({
                         variant="ghost"
                         size="sm"
                         aria-label="Remove this time"
-                        onClick={() => slotMut.remove(s.recordId)}
+                        onClick={async () => {
+                          const r = await callAction('removeSlot', { slotId: s.recordId })
+                          if (!r.success) error('Could not remove that time', r.error)
+                        }}
                       >
                         <Trash2 aria-hidden />
                       </Button>
@@ -247,7 +250,6 @@ function Paceline({ riders }: { riders: Array<{ id: string; name: string; maybe:
 }
 
 function AddSlot({ rideId, existing, onAdded }: { rideId: string; existing: number[]; onAdded: () => void }) {
-  const { ready, createConfirmed } = useMutations<Slot>('slots')
   const { error } = useToast()
   const [custom, setCustom] = useState('')
   const [adding, setAdding] = useState(false)
@@ -266,15 +268,14 @@ function AddSlot({ rideId, existing, onAdded }: { rideId: string; existing: numb
     }
     if (existing.includes(at)) return
     setAdding(true)
-    try {
-      await createConfirmed({ rideId, startsAt: at })
-      setCustom('')
-      onAdded()
-    } catch (e) {
-      error('Could not add that time', String(e))
-    } finally {
-      setAdding(false)
+    const r = await callAction('addSlot', { rideId, startsAt: at })
+    setAdding(false)
+    if (!r.success) {
+      error('Could not add that time', r.error)
+      return
     }
+    setCustom('')
+    onAdded()
   }
 
   return (
@@ -286,7 +287,7 @@ function AddSlot({ rideId, existing, onAdded }: { rideId: string; existing: numb
             key={q.label}
             size="sm"
             variant="secondary"
-            disabled={!ready || adding}
+            disabled={adding}
             onClick={() => add(q.at)}
           >
             <Plus aria-hidden />
@@ -308,7 +309,7 @@ function AddSlot({ rideId, existing, onAdded }: { rideId: string; existing: numb
             value={custom}
             onChange={(e) => setCustom(e.target.value)}
           />
-          <Button size="sm" type="submit" disabled={!ready || !custom} loading={adding}>
+          <Button size="sm" type="submit" disabled={!custom} loading={adding}>
             Add
           </Button>
         </form>

@@ -1,13 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  addSlot,
   buildBriefContext,
+  DuplicateRecordError,
+  lockSlot,
+  MAX_SLOTS_PER_RIDE,
   parseBrief,
+  REMINDER_CLAIM_TTL,
+  REMINDER_MAX_ATTEMPTS,
+  removeSlot,
   sendDueReminders,
+  sendReminderForRide,
   UserFacingError,
   type Envelope,
   type Store,
 } from './ride-ops'
-import type { Ride, Rsvp, Slot, Vote } from '../lib/types'
+import { collectPages } from './stores'
+import type { Reminder, Ride, Rsvp, Slot, Vote } from '../lib/types'
 
 const ride: Envelope<Ride> = {
   recordId: 'ride1',
@@ -85,58 +94,219 @@ describe('buildBriefContext', () => {
   })
 })
 
-describe('sendDueReminders', () => {
-  const now = Date.UTC(2026, 10, 20, 12)
+/**
+ * In-memory Store: `where` is exact-match like the RecordRoom, and creates
+ * honour `uniqueOn` for the collections that declare one.
+ */
+const UNIQUE: Record<string, string[]> = { reminders: ['rideId', 'riderId', 'startsAt', 'attempt'] }
 
-  function makeStore(rides: Array<Envelope<Ride>>, rsvps: Array<Envelope<Rsvp>>) {
-    const updates: Array<[string, string, Record<string, unknown>]> = []
-    const integration = vi.fn(async () => ({}))
-    const store: Store = {
-      async query<T>(collection: string) {
-        return (collection === 'rides' ? rides : rsvps) as unknown as Array<Envelope<T>>
-      },
-      async get<T>(_c: string, id: string) {
-        return { recordId: id, data: { email: `${id}@example.com` } } as unknown as Envelope<T>
-      },
-      async update(c, id, patch) {
-        updates.push([c, id, patch])
-      },
-      integration,
-    }
-    return { store, updates, integration }
+function memoryStore(seed: Record<string, Array<Envelope<unknown>>>, caller = 'system') {
+  const db: Record<string, Array<Envelope<Record<string, unknown>>>> = {}
+  for (const [c, rows] of Object.entries(seed)) {
+    db[c] = rows.map((r) => ({ ...r, data: { ...(r.data as Record<string, unknown>) } }))
   }
+  const rows = (c: string) => (db[c] ??= [])
+  let n = 0
+  const integration = vi.fn(async (_endpoint: string, _body: Record<string, unknown>): Promise<unknown> => ({}))
+  const store: Store = {
+    async query<T>(c: string, where: Record<string, unknown> = {}) {
+      return rows(c).filter((r) => Object.entries(where).every(([k, v]) => r.data[k] === v)) as unknown as Array<
+        Envelope<T>
+      >
+    },
+    async get<T>(c: string, id: string) {
+      return (rows(c).find((r) => r.recordId === id) ?? null) as Envelope<T> | null
+    },
+    async create(c, data) {
+      const keys = UNIQUE[c]
+      if (keys && rows(c).some((r) => keys.every((k) => r.data[k] === data[k]))) {
+        throw new DuplicateRecordError(`Duplicate: ${c}`)
+      }
+      const recordId = `${c}-${++n}`
+      rows(c).push({ recordId, createdBy: caller, data: { ...data } })
+      return recordId
+    },
+    async update(c, id, patch) {
+      const r = rows(c).find((x) => x.recordId === id)
+      if (!r) throw new Error(`no ${c}/${id}`)
+      Object.assign(r.data, patch)
+    },
+    async remove(c, id) {
+      db[c] = rows(c).filter((r) => r.recordId !== id)
+    },
+    integration,
+  }
+  return { store, db, integration }
+}
 
-  const locked = (over: Partial<Ride>): Envelope<Ride> => ({
-    ...ride,
-    data: { ...ride.data, status: 'locked', ...over },
+const users = ['alice', 'bob', 'cara'].map((id) => ({ recordId: id, data: { email: `${id}@example.com` } }))
+
+describe('slots', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const later = now + 2 * 24 * 3600_000
+
+  it('adds a time to an unlocked ride and dedupes the same time', async () => {
+    const { store, db } = memoryStore({ rides: [ride] }, 'alice')
+    const a = await addSlot(store, 'ride1', later, now)
+    const b = await addSlot(store, 'ride1', later, now)
+    expect(a.created).toBe(true)
+    expect(b).toEqual({ slotId: a.slotId, created: false })
+    expect(db.slots).toHaveLength(1)
   })
-  const going: Array<Envelope<Rsvp>> = [
-    { recordId: 'r1', data: { rideId: 'ride1', userId: 'alice', status: 'going' } },
-    { recordId: 'r2', data: { rideId: 'ride1', userId: 'bob', status: 'out' } },
-  ]
+
+  it('refuses unknown rides, locked rides, past times and too many slots', async () => {
+    const lockedRide = { ...ride, recordId: 'ride2', data: { ...ride.data, status: 'locked' as const } }
+    const { store } = memoryStore({ rides: [ride, lockedRide] })
+    await expect(addSlot(store, 'nope', later, now)).rejects.toThrow(UserFacingError)
+    await expect(addSlot(store, 'ride2', later, now)).rejects.toThrow(/locked/)
+    await expect(addSlot(store, 'ride1', now - 1, now)).rejects.toThrow(/future/)
+    await expect(addSlot(store, 'ride1', NaN, now)).rejects.toThrow(/future/)
+    for (let i = 0; i < MAX_SLOTS_PER_RIDE; i++) await addSlot(store, 'ride1', later + i * 3600_000, now)
+    await expect(addSlot(store, 'ride1', later + 99 * 3600_000, now)).rejects.toThrow(/at most/)
+  })
+
+  it('lets the proposer or organizer remove a time with its votes, never once locked', async () => {
+    const slot = { recordId: 's1', createdBy: 'alice', data: { rideId: 'ride1', startsAt: later } }
+    const vote = { recordId: 'v1', data: { rideId: 'ride1', slotId: 's1', userId: 'bob', choice: 'yes' } }
+    const { store, db } = memoryStore({ rides: [ride], slots: [slot], votes: [vote] })
+
+    await expect(removeSlot(store, 'bob', 's1')).rejects.toThrow(/Only whoever proposed/)
+    await lockSlot(store, 'org', 'ride1', 's1')
+    await expect(removeSlot(store, 'alice', 's1')).rejects.toThrow(/Unlock/)
+    await expect(removeSlot(store, 'org', 's1')).rejects.toThrow(/Unlock/)
+    expect(db.slots).toHaveLength(1)
+
+    await lockSlot(store, 'org', 'ride1', null)
+    await removeSlot(store, 'org', 's1')
+    expect(db.slots).toHaveLength(0)
+    expect(db.votes).toHaveLength(0)
+  })
+})
+
+describe('reminders', () => {
+  const now = Date.UTC(2026, 10, 20, 12)
+  const startsAt = now + 10 * 3600_000
+  const lockedRide = (over: Partial<Ride> = {}): Envelope<Ride> => ({
+    ...ride,
+    data: { ...ride.data, status: 'locked', lockedStartsAt: startsAt, ...over },
+  })
+  const rsvp = (userId: string, status: Rsvp['status'] = 'going'): Envelope<Rsvp> => ({
+    recordId: `rsvp-${userId}`,
+    data: { rideId: 'ride1', userId, status },
+  })
+  const sentTo = (integration: ReturnType<typeof memoryStore>['integration']) =>
+    integration.mock.calls.map((c) => (c[1] as { to: string }).to)
 
   it('emails only "going" riders for rides starting within 24h, once', async () => {
-    const { store, updates, integration } = makeStore(
-      [locked({ lockedStartsAt: now + 10 * 3600_000 })],
-      going,
-    )
-    const { sent } = await sendDueReminders(store, 'https://regroup.app.space', now)
-    expect(sent).toBe(1)
+    const { store, db, integration } = memoryStore({
+      rides: [lockedRide()],
+      rsvps: [rsvp('alice'), rsvp('bob', 'out')],
+      users,
+    })
+    expect((await sendDueReminders(store, 'https://x', now)).sent).toBe(1)
+    expect(sentTo(integration)).toEqual(['alice@example.com'])
+    expect(db.rides[0].data.reminderSentAt).toBe(now)
+
+    expect((await sendDueReminders(store, 'https://x', now + 30 * 60_000)).sent).toBe(0)
     expect(integration).toHaveBeenCalledTimes(1)
-    expect(integration.mock.calls[0]).toMatchObject(['email/send', { to: 'alice@example.com' }])
-    expect(updates).toContainEqual(['rides', 'ride1', { reminderSentAt: now }])
   })
 
-  it('skips rides already reminded, too far out, or in the past', async () => {
-    const { store, integration } = makeStore(
-      [
-        locked({ lockedStartsAt: now + 3600_000, reminderSentAt: now - 1000 }),
-        locked({ lockedStartsAt: now + 3 * 24 * 3600_000 }),
-        locked({ lockedStartsAt: now - 3600_000 }),
+  it('skips rides too far out or in the past', async () => {
+    const { store, integration } = memoryStore({
+      rides: [
+        lockedRide({ lockedStartsAt: now + 3 * 24 * 3600_000 }),
+        { ...lockedRide({ lockedStartsAt: now - 3600_000 }), recordId: 'ride2' },
       ],
-      going,
-    )
+      rsvps: [rsvp('alice')],
+      users,
+    })
     expect((await sendDueReminders(store, 'https://x', now)).sent).toBe(0)
     expect(integration).not.toHaveBeenCalled()
+  })
+
+  it('retries a failed send on the next run without re-emailing riders who got it', async () => {
+    const { store, db, integration } = memoryStore({
+      rides: [lockedRide()],
+      rsvps: [rsvp('alice'), rsvp('bob')],
+      users,
+    })
+    integration.mockImplementation(async (_e, body) => {
+      if (body.to === 'bob@example.com') throw new Error('smtp 451')
+      return {}
+    })
+    expect(await sendReminderForRide(store, db.rides[0] as unknown as Envelope<Ride>, 'https://x', now)).toEqual({
+      sent: 1,
+      failed: 1,
+      pending: 2,
+    })
+
+    integration.mockImplementation(async () => ({}))
+    expect((await sendDueReminders(store, 'https://x', now + 30 * 60_000)).sent).toBe(1)
+    expect(sentTo(integration)).toEqual(['alice@example.com', 'bob@example.com', 'bob@example.com'])
+    const bob = (db.reminders as unknown as Array<Envelope<Reminder>>).filter((r) => r.data.riderId === 'bob')
+    expect(bob.map((r) => r.data.status)).toEqual(['failed', 'sent'])
+  })
+
+  it('stops retrying a rider after the attempt limit', async () => {
+    const { store, integration } = memoryStore({ rides: [lockedRide()], rsvps: [rsvp('alice')], users })
+    integration.mockImplementation(async () => {
+      throw new Error('down')
+    })
+    for (let i = 0; i < REMINDER_MAX_ATTEMPTS + 3; i++) await sendDueReminders(store, 'https://x', now + i * 60_000)
+    expect(integration).toHaveBeenCalledTimes(REMINDER_MAX_ATTEMPTS)
+  })
+
+  it('reminds a rider who RSVPs after the first run, and nobody when no one is going yet', async () => {
+    const { store, db, integration } = memoryStore({ rides: [lockedRide()], rsvps: [], users })
+    expect((await sendDueReminders(store, 'https://x', now)).sent).toBe(0)
+    expect(db.rides[0].data.reminderSentAt).toBeUndefined()
+
+    db.rsvps.push(rsvp('cara') as unknown as Envelope<Record<string, unknown>>)
+    expect((await sendDueReminders(store, 'https://x', now + 30 * 60_000)).sent).toBe(1)
+    expect(sentTo(integration)).toEqual(['cara@example.com'])
+  })
+
+  it("leaves another run's fresh claim alone but takes over a stale one", async () => {
+    const claim = (claimedAt: number): Envelope<Reminder> => ({
+      recordId: 'claim',
+      data: { rideId: 'ride1', riderId: 'alice', startsAt, attempt: 1, status: 'sending', claimedAt },
+    })
+    const fresh = memoryStore({ rides: [lockedRide()], rsvps: [rsvp('alice')], users, reminders: [claim(now)] })
+    expect((await sendDueReminders(fresh.store, 'https://x', now + 60_000)).sent).toBe(0)
+
+    const stale = memoryStore({
+      rides: [lockedRide()],
+      rsvps: [rsvp('alice')],
+      users,
+      reminders: [claim(now - REMINDER_CLAIM_TTL - 1)],
+    })
+    expect((await sendDueReminders(stale.store, 'https://x', now)).sent).toBe(1)
+  })
+
+  it('sends again when the ride is re-locked to a different time', async () => {
+    const { store, db, integration } = memoryStore({ rides: [lockedRide()], rsvps: [rsvp('alice')], users })
+    await sendDueReminders(store, 'https://x', now)
+    db.rides[0].data.lockedStartsAt = startsAt + 3600_000
+    await sendDueReminders(store, 'https://x', now)
+    expect(integration).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('collectPages', () => {
+  it('follows nextOffset past the first page until it runs out', async () => {
+    const all = Array.from({ length: 1234 }, (_, i) => ({ recordId: `r${i}`, data: {} }))
+    const offsets: number[] = []
+    const got = await collectPages(async (offset) => {
+      offsets.push(offset)
+      const records = all.slice(offset, offset + 500)
+      return { records, nextOffset: offset + 500 < all.length ? offset + 500 : undefined }
+    })
+    expect(got).toHaveLength(1234)
+    expect(offsets).toEqual([0, 500, 1000])
+  })
+
+  it('stops on a non-advancing offset instead of looping forever', async () => {
+    const got = await collectPages(async () => ({ records: [{ recordId: 'a', data: {} }], nextOffset: 0 }))
+    expect(got).toHaveLength(1)
   })
 })

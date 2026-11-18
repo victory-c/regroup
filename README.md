@@ -18,11 +18,11 @@ Live: https://regroup.app.space · Built on [DeepSpace](https://docs.deep.space)
 
 | Piece | Used for | Why it earns its place |
 | --- | --- | --- |
-| **RecordRoom collections** (`rides`, `slots`, `votes`, `rsvps`) | All app data, live-synced over WebSocket | Voting is only useful if everyone sees the same tally at the same time. |
+| **RecordRoom collections** (`rides`, `slots`, `votes`, `rsvps`, `reminders`) | All app data, live-synced over WebSocket | Voting is only useful if everyone sees the same tally at the same time. |
 | **RBAC in the schema** | `update/delete: 'own'`, `writableFields`, `uniqueOn` + `userBound` | One vote per rider per slot and one RSVP per ride are enforced in the Durable Object, so a forged client write can't stuff the ballot or vote as someone else. Server-computed fields (weather, AI brief, stop results, lock state) are outside `writableFields`, so clients can't forge them. |
-| **Server actions** | `scoreSlots`, `findStops`, `generateBrief`, `lockSlot`, `sendReminderNow`, `deleteRide` | Organizer checks, cooldowns and owner-billed integration calls run server-side, with the caller from the verified JWT. Results are written once and broadcast to everyone. |
+| **Server actions** | `addSlot`, `removeSlot`, `scoreSlots`, `findStops`, `generateBrief`, `lockSlot`, `sendReminderNow`, `deleteRide` | Slots are written only here (clients can read but not write them), so a locked ride's time can't be edited or deleted out from under it. Organizer checks, cooldowns and owner-billed integration calls run server-side, with the caller from the verified JWT. Results are written once and broadcast to everyone. |
 | **Presence room** (`usePresenceRoom`) | "2 here now" avatars on a ride | Shows the group is deciding together. |
-| **Cron** (`CronRoom`) | `ride-reminders` every 30 min | Idempotent via `reminderSentAt`, so the interval only bounds lateness. |
+| **Cron** (`CronRoom`) | `ride-reminders` every 30 min | Delivery is tracked per rider and ride time in `reminders` (one record per attempt, claimed atomically via `uniqueOn`), so failed sends retry next tick, late RSVPs still get one, and nobody is emailed twice short of a crash mid-send. The interval only bounds lateness. |
 | **Auth** | Google/GitHub sign-in, user directory for names/avatars | Uses the built-in `useUsers` public-identity projection, so emails never reach other members. |
 
 ### Integrations (all through the DeepSpace proxy, no API keys in the repo)

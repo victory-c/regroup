@@ -92,6 +92,11 @@ test('two riders plan, vote, lock and RSVP in realtime', async ({ users }) => {
     await b.page.getByRole('button', { name: 'I’m in' }).click()
     await expect(a.page.getByTestId('rsvp-panel')).toContainText('1 going', { timeout: 15_000 })
 
+    // Once locked, the time set can't change: no new slots, even via the API.
+    const lateSlot = await action(b.page, 'addSlot', { rideId, startsAt: Date.now() + 2 * 86_400_000 })
+    expect(lateSlot).toMatchObject({ success: false, error: expect.stringMatching(/locked/) })
+    await expect(a.page.getByTestId('slot-row')).toHaveCount(1)
+
     // ── A generates the AI brief; B sees it ─────────────────────────────
     await a.page.getByTestId('brief-panel').getByRole('button', { name: 'Write brief' }).click()
     await expect(b.page.getByTestId('brief-headline')).toBeVisible({
