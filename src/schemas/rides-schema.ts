@@ -9,8 +9,10 @@
  * - Votes and RSVPs are one-per-user via `uniqueOn` + a `userBound` owner
  *   column, so a forged client write can't stuff the ballot or vote as
  *   someone else.
- * - Slots and reminder attempts are written only by server actions / cron
- *   (clients can't create, edit or delete them).
+ * - Slots, votes, RSVPs and reminder attempts are written only by server
+ *   actions / cron; clients can read them but not create, edit or delete them.
+ *   The actions check that each record points at a real ride, that a vote's
+ *   ride is its slot's ride, and that the ride is in the right state.
  */
 
 import type { CollectionSchema } from 'deepspace/schema'
@@ -116,9 +118,12 @@ export const votesSchema: CollectionSchema = {
   ],
   uniqueOn: ['slotId', 'userId'],
   ownerField: 'userId',
+  // Read-only to clients: votes go through the castVote action, which takes
+  // rideId from the slot (so it always matches) and refuses once the ride is
+  // locked. `userBound` still stamps the verified caller on create.
   permissions: {
-    member: { read: true, create: true, update: 'own', delete: 'own' },
-    admin: { read: true, create: true, update: 'own', delete: true },
+    member: { read: true, create: false, update: false, delete: false },
+    admin: { read: true, create: false, update: false, delete: false },
   },
 }
 
@@ -133,12 +138,16 @@ export const rsvpsSchema: CollectionSchema = {
       interpretation: { kind: 'select', options: ['going', 'out'] },
       required: true,
     },
+    /** The locked start time this answer applies to; set by the server. */
+    { name: 'startsAt', storage: 'number', interpretation: 'plain' },
   ],
   uniqueOn: ['rideId', 'userId'],
   ownerField: 'userId',
+  // Read-only to clients: RSVPs go through the setRsvp action, which requires
+  // a locked ride and records which time the answer is for.
   permissions: {
-    member: { read: true, create: true, update: 'own', delete: 'own' },
-    admin: { read: true, create: true, update: 'own', delete: true },
+    member: { read: true, create: false, update: false, delete: false },
+    admin: { read: true, create: false, update: false, delete: false },
   },
 }
 

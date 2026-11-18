@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   addSlot,
   buildBriefContext,
+  castVote,
   DuplicateRecordError,
   lockSlot,
   MAX_SLOTS_PER_RIDE,
@@ -11,6 +12,7 @@ import {
   removeSlot,
   sendDueReminders,
   sendReminderForRide,
+  setRsvp,
   UserFacingError,
   type Envelope,
   type Store,
@@ -98,9 +100,16 @@ describe('buildBriefContext', () => {
  * In-memory Store: `where` is exact-match like the RecordRoom, and creates
  * honour `uniqueOn` for the collections that declare one.
  */
-const UNIQUE: Record<string, string[]> = { reminders: ['rideId', 'riderId', 'startsAt', 'attempt'] }
+const UNIQUE: Record<string, string[]> = {
+  reminders: ['rideId', 'riderId', 'startsAt', 'attempt'],
+  votes: ['slotId', 'userId'],
+  rsvps: ['rideId', 'userId'],
+}
+/** Collections with a `userBound` userId column: create stamps the writer. */
+const USER_BOUND = new Set(['votes', 'rsvps'])
 
-function memoryStore(seed: Record<string, Array<Envelope<unknown>>>, caller = 'system') {
+function memoryStore(seed: Record<string, Array<Envelope<unknown>>>, initialCaller = 'system') {
+  let caller = initialCaller
   const db: Record<string, Array<Envelope<Record<string, unknown>>>> = {}
   for (const [c, rows] of Object.entries(seed)) {
     db[c] = rows.map((r) => ({ ...r, data: { ...(r.data as Record<string, unknown>) } }))
@@ -117,7 +126,8 @@ function memoryStore(seed: Record<string, Array<Envelope<unknown>>>, caller = 's
     async get<T>(c: string, id: string) {
       return (rows(c).find((r) => r.recordId === id) ?? null) as Envelope<T> | null
     },
-    async create(c, data) {
+    async create(c, input) {
+      const data = USER_BOUND.has(c) ? { ...input, userId: caller } : input
       const keys = UNIQUE[c]
       if (keys && rows(c).some((r) => keys.every((k) => r.data[k] === data[k]))) {
         throw new DuplicateRecordError(`Duplicate: ${c}`)
@@ -136,7 +146,10 @@ function memoryStore(seed: Record<string, Array<Envelope<unknown>>>, caller = 's
     },
     integration,
   }
-  return { store, db, integration }
+  const actAs = (id: string) => {
+    caller = id
+  }
+  return { store, db, integration, actAs }
 }
 
 const users = ['alice', 'bob', 'cara'].map((id) => ({ recordId: id, data: { email: `${id}@example.com` } }))
@@ -308,5 +321,78 @@ describe('collectPages', () => {
   it('stops on a non-advancing offset instead of looping forever', async () => {
     const got = await collectPages(async () => ({ records: [{ recordId: 'a', data: {} }], nextOffset: 0 }))
     expect(got).toHaveLength(1)
+  })
+})
+
+describe('votes', () => {
+  const later = Date.UTC(2026, 10, 22, 17)
+  const slots = [
+    { recordId: 's1', createdBy: 'org', data: { rideId: 'ride1', startsAt: later } },
+    { recordId: 'sX', createdBy: 'org', data: { rideId: 'ride2', startsAt: later } },
+  ]
+  const ride2 = { ...ride, recordId: 'ride2' }
+
+  it("files the vote under the slot's own ride, as the caller, one per rider", async () => {
+    const { store, db, actAs } = memoryStore({ rides: [ride, ride2], slots }, 'alice')
+    await castVote(store, 'alice', 's1', 'yes')
+    await castVote(store, 'alice', 's1', 'maybe')
+    actAs('bob')
+    await castVote(store, 'bob', 's1', 'no')
+    expect(db.votes.map((v) => v.data)).toEqual([
+      { rideId: 'ride1', slotId: 's1', choice: 'maybe', userId: 'alice' },
+      { rideId: 'ride1', slotId: 's1', choice: 'no', userId: 'bob' },
+    ])
+  })
+
+  it('clears a vote with null', async () => {
+    const { store, db } = memoryStore({ rides: [ride], slots }, 'alice')
+    await castVote(store, 'alice', 's1', 'yes')
+    await castVote(store, 'alice', 's1', null)
+    expect(db.votes).toHaveLength(0)
+  })
+
+  it('refuses unknown slots, bad choices and locked rides', async () => {
+    const { store, db } = memoryStore({ rides: [ride], slots }, 'alice')
+    await expect(castVote(store, 'alice', 'nope', 'yes')).rejects.toThrow(/no longer exists/)
+    await expect(castVote(store, 'alice', 's1', 'definitely')).rejects.toThrow(/yes, maybe or no/)
+    await castVote(store, 'alice', 's1', 'yes')
+    await lockSlot(store, 'org', 'ride1', 's1')
+    await expect(castVote(store, 'alice', 's1', 'no')).rejects.toThrow(/locked/)
+    await expect(castVote(store, 'alice', 's1', null)).rejects.toThrow(/locked/)
+    expect(db.votes.map((v) => v.data.choice)).toEqual(['yes'])
+  })
+})
+
+describe('RSVPs', () => {
+  const t1 = Date.UTC(2026, 10, 21, 17)
+  const t2 = Date.UTC(2026, 10, 22, 17)
+  const slots = [
+    { recordId: 's1', data: { rideId: 'ride1', startsAt: t1 } },
+    { recordId: 's2', data: { rideId: 'ride1', startsAt: t2 } },
+  ]
+
+  it('only opens once the ride is locked, and records which time it answers', async () => {
+    const { store, db } = memoryStore({ rides: [ride], slots }, 'alice')
+    await expect(setRsvp(store, 'alice', 'ride1', 'going')).rejects.toThrow(/locks a time/)
+    await lockSlot(store, 'org', 'ride1', 's1')
+    await setRsvp(store, 'alice', 'ride1', 'going')
+    await setRsvp(store, 'alice', 'ride1', 'out')
+    expect(db.rsvps.map((r) => r.data)).toEqual([{ rideId: 'ride1', startsAt: t1, status: 'out', userId: 'alice' }])
+    await expect(setRsvp(store, 'alice', 'ride1', 'maybe')).rejects.toThrow(/going or out/)
+    await expect(setRsvp(store, 'alice', 'nope', 'going')).rejects.toThrow(/not found/)
+  })
+
+  it('drops answers when re-locked to a different time, keeps them for the same time', async () => {
+    const { store, db } = memoryStore({ rides: [ride], slots }, 'alice')
+    await lockSlot(store, 'org', 'ride1', 's1')
+    await setRsvp(store, 'alice', 'ride1', 'going')
+
+    await lockSlot(store, 'org', 'ride1', null)
+    await lockSlot(store, 'org', 'ride1', 's1')
+    expect(db.rsvps).toHaveLength(1)
+
+    await lockSlot(store, 'org', 'ride1', null)
+    await lockSlot(store, 'org', 'ride1', 's2')
+    expect(db.rsvps).toHaveLength(0)
   })
 })

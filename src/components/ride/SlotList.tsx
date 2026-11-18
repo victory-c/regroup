@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAuth, useMutations, useUserLookup, getUserColor } from 'deepspace'
+import { useAuth, useUserLookup, getUserColor } from 'deepspace'
 import { Lock, Plus, Trash2 } from 'lucide-react'
 import { Button, Input, useToast } from '../ui'
 import { WeatherChip } from '../WeatherChip'
@@ -42,7 +42,7 @@ export function SlotList({
 }: Props) {
   const { userId } = useAuth()
   const { getUser } = useUserLookup()
-  const voteMut = useMutations<Vote>('votes')
+  const [voting, setVoting] = useState<string | null>(null)
   const { error } = useToast()
 
   const sorted = slots.slice().sort((a, b) => a.data.startsAt - b.data.startsAt)
@@ -51,13 +51,11 @@ export function SlotList({
 
   async function vote(slotId: string, choice: VoteChoice) {
     const mine = votes.find((v) => v.data.slotId === slotId && v.data.userId === userId)
-    try {
-      if (mine && mine.data.choice === choice) await voteMut.remove(mine.recordId)
-      else if (mine) await voteMut.put(mine.recordId, { choice })
-      else await voteMut.create({ rideId, slotId, choice })
-    } catch (e) {
-      error('Vote not saved', String(e))
-    }
+    // Tapping your current choice again clears it.
+    setVoting(slotId)
+    const r = await callAction('castVote', { slotId, choice: mine?.data.choice === choice ? null : choice })
+    setVoting(null)
+    if (!r.success) error('Vote not saved', r.error)
   }
 
   return (
@@ -124,7 +122,7 @@ export function SlotList({
                         key={c.value}
                         type="button"
                         aria-pressed={mine === c.value}
-                        disabled={!voteMut.ready || locked}
+                        disabled={voting === s.recordId || locked}
                         onClick={() => vote(s.recordId, c.value)}
                         className={cn(
                           'h-8 min-w-14 rounded-md px-3 text-sm font-medium transition-colors duration-150 ease-(--ease-out-soft) disabled:cursor-not-allowed disabled:opacity-50',

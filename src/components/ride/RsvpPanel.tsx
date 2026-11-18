@@ -1,9 +1,11 @@
-import { useAuth, useMutations, useUserLookup } from 'deepspace'
+import { useState } from 'react'
+import { useAuth, useUserLookup } from 'deepspace'
 import { Mail, UserCheck } from 'lucide-react'
 import { Button, useToast } from '../ui'
 import type { Ride, Rsvp } from '../../lib/types'
 import { fmtDay, fmtRelative, fmtTime } from '../../lib/format'
 import { cn } from '../../lib/utils'
+import { callAction } from '../../lib/actions'
 
 type Rec<T> = { recordId: string; createdBy: string; data: T }
 
@@ -19,18 +21,16 @@ interface Props {
 export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendReminder }: Props) {
   const { userId } = useAuth()
   const { getName } = useUserLookup()
-  const { ready, create, put } = useMutations<Rsvp>('rsvps')
+  const [saving, setSaving] = useState(false)
   const { error } = useToast()
   const mine = rsvps.find((r) => r.data.userId === userId)
   const going = rsvps.filter((r) => r.data.status === 'going')
 
   async function set(status: Rsvp['status']) {
-    try {
-      if (mine) await put(mine.recordId, { status })
-      else await create({ rideId, status })
-    } catch (e) {
-      error('RSVP not saved', String(e))
-    }
+    setSaving(true)
+    const r = await callAction('setRsvp', { rideId, status })
+    setSaving(false)
+    if (!r.success) error('RSVP not saved', r.error)
   }
 
   return (
@@ -53,7 +53,7 @@ export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendRem
           className="flex-1"
           variant={mine?.data.status === 'going' ? 'default' : 'secondary'}
           aria-pressed={mine?.data.status === 'going'}
-          disabled={!ready}
+          disabled={saving}
           onClick={() => set('going')}
         >
           <UserCheck aria-hidden />
@@ -63,7 +63,7 @@ export function RsvpPanel({ rideId, ride, rsvps, isOrganizer, sending, onSendRem
           className="flex-1"
           variant={mine?.data.status === 'out' ? 'secondary' : 'ghost'}
           aria-pressed={mine?.data.status === 'out'}
-          disabled={!ready}
+          disabled={saving}
           onClick={() => set('out')}
         >
           Can’t make it
