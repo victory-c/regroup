@@ -179,13 +179,13 @@ function Hero() {
   return (
     <main className="relative mx-auto max-w-6xl px-4 pb-24 pt-2 sm:px-6">
       <div className="relative overflow-hidden rounded-t-3xl">
-        <div className="absolute inset-0 [mask-image:linear-gradient(to_bottom,black_40%,transparent_84%)]">
+        <div className="absolute inset-0 [mask-image:linear-gradient(to_bottom,black_62%,transparent_98%)]">
           <img
             src="/hero/treeline.webp"
             alt=""
             className="h-full w-full object-cover object-[78%_45%] sm:object-[70%_45%]"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/70 to-transparent max-sm:via-background/80 max-sm:to-background/40" />
+          <div className="absolute inset-0 bg-gradient-to-r from-background from-10% via-background/70 via-40% to-transparent to-65% max-sm:via-background/80 max-sm:to-background/40 max-sm:to-100%" />
         </div>
         <div className="relative px-6 pb-56 pt-14 sm:px-10 lg:pb-80 lg:pt-20">
           <Pitch />
