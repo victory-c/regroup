@@ -14,6 +14,7 @@
 
 import { z } from 'zod'
 import { scoreRideWindow, type ForecastEntry } from '../lib/weather'
+import { briefBasis, isBriefStale } from '../lib/brief-basis'
 import type { Briefing, Reminder, Ride, Rsvp, Slot, StopOption, Vote } from '../lib/types'
 
 export const BRIEF_MODEL = 'claude-haiku-5-5'
@@ -411,7 +412,12 @@ export async function generateBrief(store: Store, callerId: string, rideId: stri
     .join('')
   const parsed = parseBrief(text, new Set(slots.map((s) => s.recordId)))
 
-  const briefing: Briefing = { ...parsed, generatedAt: now, model: BRIEF_MODEL }
+  const briefing: Briefing = {
+    ...parsed,
+    generatedAt: now,
+    model: BRIEF_MODEL,
+    basis: briefBasis(ride.data, slots, votes, rsvps),
+  }
   await store.update('rides', rideId, { briefing })
   return briefing
 }
@@ -515,8 +521,19 @@ export async function sendReminderForRide(
   const when = ride.data.lockedStartsAt ? formatTime(ride.data.lockedStartsAt, ride.data.timezone) : ''
   const stop =
     ride.data.chosenStopIndex != null ? ride.data.stopOptions?.[ride.data.chosenStopIndex] : undefined
-  const brief = ride.data.briefing
   const link = `${appOrigin}/rides/${ride.recordId}`
+
+  // Only quote the AI brief if it still describes this ride. One written
+  // before the lock, a vote or an RSVP can say things like "no one's
+  // committed yet" about a ride that's locked and full, so leave it out and
+  // point at the page instead of mailing stale advice.
+  const [slots, votes] = await Promise.all([
+    store.query<Slot>('slots', { rideId: ride.recordId }),
+    store.query<Vote>('votes', { rideId: ride.recordId }),
+  ])
+  const written = ride.data.briefing
+  const stale = isBriefStale(written, briefBasis(ride.data, slots, votes, rsvps))
+  const brief = written && !stale ? written : undefined
 
   const lines = [
     `${ride.data.title} — ${when}`,
@@ -526,6 +543,7 @@ export async function sendReminderForRide(
     brief ? brief.headline : '',
     ...(brief?.bullets ?? []).map((b) => `• ${b}`),
     ...(brief?.warnings ?? []).map((w) => `⚠ ${w}`),
+    written && stale ? 'The ride brief was written before the latest changes, so it is not included here.' : '',
     '',
     `Ride page: ${link}`,
   ].filter((l, i, a) => l !== '' || a[i - 1] !== '')

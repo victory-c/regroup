@@ -5,13 +5,15 @@ import { fmtRelative } from '../../lib/format'
 
 interface Props {
   briefing?: Briefing
+  /** The ride has changed since this brief was written. */
+  stale: boolean
   isOrganizer: boolean
   hasSlots: boolean
   generating: boolean
   onGenerate: () => void
 }
 
-export function BriefPanel({ briefing, isOrganizer, hasSlots, generating, onGenerate }: Props) {
+export function BriefPanel({ briefing, stale, isOrganizer, hasSlots, generating, onGenerate }: Props) {
   return (
     <section
       aria-labelledby="brief-heading"
@@ -25,7 +27,7 @@ export function BriefPanel({ briefing, isOrganizer, hasSlots, generating, onGene
         {isOrganizer && (
           <Button
             size="sm"
-            variant={briefing ? 'outline' : 'default'}
+            variant={briefing && !stale ? 'outline' : 'default'}
             disabled={!hasSlots}
             loading={generating}
             onClick={onGenerate}
@@ -45,6 +47,17 @@ export function BriefPanel({ briefing, isOrganizer, hasSlots, generating, onGene
         </p>
       ) : (
         <div className="space-y-3 text-sm">
+          {stale && (
+            <p
+              data-testid="brief-stale"
+              className="rounded-lg border border-warning-line bg-warning-soft p-3 text-warning-ink"
+            >
+              {isOrganizer
+                ? 'Out of date: votes, RSVPs or the plan changed since this was written. Rewrite it before you share it.'
+                : 'Out of date: votes, RSVPs or the plan changed since this was written.'}{' '}
+              Reminder emails leave it out until it’s rewritten.
+            </p>
+          )}
           <p data-testid="brief-headline" className="text-base font-semibold leading-snug">
             {briefing.headline}
           </p>

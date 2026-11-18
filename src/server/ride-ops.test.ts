@@ -18,7 +18,8 @@ import {
   type Store,
 } from './ride-ops'
 import { collectPages } from './stores'
-import type { Reminder, Ride, Rsvp, Slot, Vote } from '../lib/types'
+import { briefBasis } from '../lib/brief-basis'
+import type { Briefing, Reminder, Ride, Rsvp, Slot, Vote } from '../lib/types'
 
 const ride: Envelope<Ride> = {
   recordId: 'ride1',
@@ -294,6 +295,37 @@ describe('reminders', () => {
       reminders: [claim(now - REMINDER_CLAIM_TTL - 1)],
     })
     expect((await sendDueReminders(stale.store, 'https://x', now)).sent).toBe(1)
+  })
+
+  it('quotes the AI brief only while it still matches the ride', async () => {
+    const rsvps = [rsvp('alice')]
+    const briefing = (basis: string): Briefing => ({
+      recommendedSlotId: null,
+      headline: 'Sunday wins',
+      summary: '',
+      bullets: ['Bring a vest'],
+      warnings: ["No one's committed yet"],
+      generatedAt: now - 3600_000,
+      model: 'm',
+      basis,
+    })
+    const emailText = async (b: Briefing) => {
+      const r = lockedRide({ briefing: b })
+      const { store, integration } = memoryStore({ rides: [r], rsvps, users })
+      await sendDueReminders(store, 'https://x', now)
+      return (integration.mock.calls[0][1] as { text: string }).text
+    }
+
+    const current = briefBasis(lockedRide().data, [], [], rsvps)
+    const fresh = await emailText(briefing(current))
+    expect(fresh).toContain('Sunday wins')
+    expect(fresh).toContain('• Bring a vest')
+
+    const stale = await emailText(briefing('written-before-lock'))
+    expect(stale).not.toContain('Sunday wins')
+    expect(stale).not.toContain("No one's committed")
+    expect(stale).toContain('written before the latest changes')
+    expect(stale).toContain('Meet: Berkeley')
   })
 
   it('sends again when the ride is re-locked to a different time', async () => {
