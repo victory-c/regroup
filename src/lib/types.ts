@@ -78,6 +78,8 @@ export interface Rsvp {
   rideId: string
   userId?: string
   status: 'going' | 'out'
+  /** The locked start time this answer applies to (server-set). */
+  startsAt?: number
 }
 
 /** One reminder send attempt for one rider at one locked ride time (server-only). */

@@ -97,6 +97,86 @@ export async function removeSlot(store: Store, callerId: string, slotId: string)
   return { removed: true }
 }
 
+// ── votes & RSVPs ────────────────────────────────────────────────────────
+
+const VOTE_CHOICES = ['yes', 'maybe', 'no'] as const
+const RSVP_STATUSES = ['going', 'out'] as const
+
+/**
+ * Create, change or (with `value: null`) clear the caller's one row in a
+ * one-per-user collection. `uniqueOn` + `userBound` already stop duplicates
+ * and impersonation; this keeps a double click from surfacing as an error.
+ */
+async function upsertOwn(
+  store: Store,
+  collection: 'votes' | 'rsvps',
+  key: Record<string, string>,
+  field: 'choice' | 'status',
+  value: string | null,
+  data: Record<string, unknown>,
+) {
+  const findMine = () => store.query<Record<string, unknown>>(collection, { ...key })
+  const mine = await findMine()
+  if (value === null) {
+    for (const r of mine) await store.remove(collection, r.recordId)
+    return
+  }
+  if (mine[0]) {
+    if (mine[0].data[field] !== value) await store.update(collection, mine[0].recordId, { [field]: value })
+    return
+  }
+  try {
+    await store.create(collection, { ...data, [field]: value })
+  } catch (e) {
+    if (!(e instanceof DuplicateRecordError)) throw e
+    const raced = (await findMine())[0]
+    if (raced) await store.update(collection, raced.recordId, { [field]: value })
+  }
+}
+
+/**
+ * The caller's vote on a slot. The slot must exist and its ride must still be
+ * open: once the organizer locks a time, votes are frozen, so the tally the
+ * decision was made on (and the brief built from it) can't shift afterwards.
+ * `rideId` comes from the slot, never the client, so a vote can't be filed
+ * under a ride its slot doesn't belong to.
+ */
+export async function castVote(
+  store: Store,
+  callerId: string,
+  slotId: string,
+  choice: string | null,
+) {
+  if (choice !== null && !(VOTE_CHOICES as readonly string[]).includes(choice)) {
+    throw new UserFacingError('Vote must be yes, maybe or no')
+  }
+  if (typeof slotId !== 'string' || !slotId) throw new UserFacingError('Missing slotId')
+  const slot = await store.get<Slot>('slots', slotId)
+  if (!slot) throw new UserFacingError('That time no longer exists')
+  const ride = await mustGetRide(store, slot.data.rideId)
+  if (ride.data.status === 'locked') throw new UserFacingError('Voting is closed: this ride is locked')
+  await upsertOwn(store, 'votes', { slotId, userId: callerId }, 'choice', choice, {
+    rideId: slot.data.rideId,
+    slotId,
+  })
+  return { choice }
+}
+
+/** The caller's RSVP. Only a locked ride has a time to RSVP to. */
+export async function setRsvp(store: Store, callerId: string, rideId: string, status: string | null) {
+  if (status !== null && !(RSVP_STATUSES as readonly string[]).includes(status)) {
+    throw new UserFacingError('RSVP must be going or out')
+  }
+  const ride = await mustGetRide(store, rideId)
+  if (ride.data.status !== 'locked') throw new UserFacingError('RSVPs open once the organizer locks a time')
+  const startsAt = ride.data.lockedStartsAt
+  await upsertOwn(store, 'rsvps', { rideId, userId: callerId }, 'status', status, { rideId, startsAt })
+  // An older answer for this ride may predate the current time; restamp it.
+  const mine = await store.query<Rsvp>('rsvps', { rideId, userId: callerId })
+  for (const r of mine) if (r.data.startsAt !== startsAt) await store.update('rsvps', r.recordId, { startsAt })
+  return { status }
+}
+
 // ── weather ──────────────────────────────────────────────────────────────
 
 const FORECAST_TTL = 30 * 60_000
@@ -144,6 +224,12 @@ export async function lockSlot(store: Store, callerId: string, rideId: string, s
   }
   const slot = await store.get<Slot>('slots', slotId)
   if (!slot || slot.data.rideId !== rideId) throw new UserFacingError('That time is not part of this ride')
+  // An RSVP answers one specific time. Re-locking to a different time drops
+  // the old answers, so nobody is counted (or reminded) for a time they never
+  // said yes to. Unlocking and re-locking the same time keeps them.
+  for (const r of await store.query<Rsvp>('rsvps', { rideId })) {
+    if (r.data.startsAt !== slot.data.startsAt) await store.remove('rsvps', r.recordId)
+  }
   await store.update('rides', rideId, {
     status: 'locked',
     lockedSlotId: slotId,

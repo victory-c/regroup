@@ -15,12 +15,14 @@ import type { Env } from '../../worker'
 import type { Ride } from '../lib/types'
 import {
   addSlot,
+  castVote,
   findStops,
   generateBrief,
   lockSlot,
   removeSlot,
   scoreSlots,
   sendReminderForRide,
+  setRsvp,
   UserFacingError,
 } from '../server/ride-ops'
 import { storeFromActionTools } from '../server/stores'
@@ -51,6 +53,28 @@ export const actions: Record<string, ActionHandler<Env>> = {
   /** Proposer or organizer: withdraw a time (and its votes) while planning. */
   removeSlot: ({ params, tools, userId }) =>
     run(() => removeSlot(storeFromActionTools(tools), userId, String(params.slotId ?? ''))),
+
+  /** Any signed-in rider: set (choice) or clear (choice: null) their vote while the ride is open. */
+  castVote: ({ params, tools, userId }) =>
+    run(() =>
+      castVote(
+        storeFromActionTools(tools),
+        userId,
+        String(params.slotId ?? ''),
+        params.choice == null ? null : String(params.choice),
+      ),
+    ),
+
+  /** Any signed-in rider: RSVP going/out (or clear) once the ride is locked. */
+  setRsvp: ({ params, tools, userId }) =>
+    run(() =>
+      setRsvp(
+        storeFromActionTools(tools),
+        userId,
+        String(params.rideId ?? ''),
+        params.status == null ? null : String(params.status),
+      ),
+    ),
 
   /** Organizer: search for mid-ride stops near the start area. */
   findStops: ({ params, tools, userId }) =>
