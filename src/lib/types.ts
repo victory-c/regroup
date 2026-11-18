@@ -79,3 +79,14 @@ export interface Rsvp {
   userId?: string
   status: 'going' | 'out'
 }
+
+/** One reminder send attempt for one rider at one locked ride time (server-only). */
+export interface Reminder {
+  rideId: string
+  riderId: string
+  startsAt: number
+  attempt: number
+  status: 'sending' | 'sent' | 'failed'
+  claimedAt: number
+  error?: string
+}

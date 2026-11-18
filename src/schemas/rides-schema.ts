@@ -9,6 +9,8 @@
  * - Votes and RSVPs are one-per-user via `uniqueOn` + a `userBound` owner
  *   column, so a forged client write can't stuff the ballot or vote as
  *   someone else.
+ * - Slots and reminder attempts are written only by server actions / cron
+ *   (clients can't create, edit or delete them).
  */
 
 import type { CollectionSchema } from 'deepspace/schema'
@@ -89,21 +91,13 @@ export const slotsSchema: CollectionSchema = {
     // ── server-owned ────────────────────────────────────────────────────
     { name: 'weather', storage: 'text', interpretation: { kind: 'json' } },
   ],
+  // Read-only to clients. Slots are added and removed only through the
+  // addSlot / removeSlot actions, which check the ride exists and isn't
+  // locked, so a locked ride's slot can't be edited or deleted out from under
+  // its `lockedStartsAt`. There is no slot edit at all.
   permissions: {
-    member: {
-      read: true,
-      create: true,
-      update: 'own',
-      delete: 'own',
-      writableFields: ['rideId', 'startsAt'],
-    },
-    admin: {
-      read: true,
-      create: true,
-      update: true,
-      delete: true,
-      writableFields: ['rideId', 'startsAt'],
-    },
+    member: { read: true, create: false, update: false, delete: false },
+    admin: { read: true, create: false, update: false, delete: false },
   },
 }
 
@@ -145,5 +139,34 @@ export const rsvpsSchema: CollectionSchema = {
   permissions: {
     member: { read: true, create: true, update: 'own', delete: 'own' },
     admin: { read: true, create: true, update: 'own', delete: true },
+  },
+}
+
+/**
+ * One reminder-email attempt per rider per locked ride time, written only by
+ * the reminder job. `uniqueOn` makes creating an attempt an atomic claim, so
+ * two runs can't send the same attempt; `status` records whether it went out.
+ * Keyed on `startsAt`, so re-locking the ride to a new time sends again.
+ */
+export const remindersSchema: CollectionSchema = {
+  name: 'reminders',
+  columns: [
+    { name: 'rideId', storage: 'text', interpretation: 'plain', required: true },
+    { name: 'riderId', storage: 'text', interpretation: 'plain', required: true },
+    { name: 'startsAt', storage: 'number', interpretation: 'plain', required: true },
+    { name: 'attempt', storage: 'number', interpretation: 'plain', required: true },
+    {
+      name: 'status',
+      storage: 'text',
+      interpretation: { kind: 'select', options: ['sending', 'sent', 'failed'] },
+      required: true,
+    },
+    { name: 'claimedAt', storage: 'number', interpretation: 'plain', required: true },
+    { name: 'error', storage: 'text', interpretation: 'plain' },
+  ],
+  uniqueOn: ['rideId', 'riderId', 'startsAt', 'attempt'],
+  permissions: {
+    member: { read: false, create: false, update: false, delete: false },
+    admin: { read: true, create: false, update: false, delete: false },
   },
 }

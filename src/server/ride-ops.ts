@@ -14,15 +14,19 @@
 
 import { z } from 'zod'
 import { scoreRideWindow, type ForecastEntry } from '../lib/weather'
-import type { Briefing, Ride, Rsvp, Slot, StopOption, Vote } from '../lib/types'
+import type { Briefing, Reminder, Ride, Rsvp, Slot, StopOption, Vote } from '../lib/types'
 
 export const BRIEF_MODEL = 'claude-haiku-5-5'
 
 /** Minimal record store both `ActionTools` and the cron context can satisfy. */
 export interface Store {
+  /** Every matching record, oldest first: implementations page until done. */
   query<T>(collection: string, where?: Record<string, unknown>): Promise<Array<Envelope<T>>>
   get<T>(collection: string, id: string): Promise<Envelope<T> | null>
+  /** Returns the new recordId; throws `DuplicateRecordError` on a `uniqueOn` clash. */
+  create(collection: string, data: Record<string, unknown>): Promise<string>
   update(collection: string, id: string, patch: Record<string, unknown>): Promise<void>
+  remove(collection: string, id: string): Promise<void>
   integration(endpoint: string, body: Record<string, unknown>): Promise<unknown>
 }
 
@@ -33,6 +37,65 @@ export interface Envelope<T> {
 }
 
 export class UserFacingError extends Error {}
+
+/** A create refused by the collection's `uniqueOn` constraint. */
+export class DuplicateRecordError extends Error {}
+
+/** RecordRoom reports a `uniqueOn` clash as an error starting "Duplicate:". */
+export function writeError(error: string | undefined): Error {
+  const msg = error || 'Record write failed'
+  return msg.startsWith('Duplicate:') ? new DuplicateRecordError(msg) : new Error(msg)
+}
+
+// ── slots ────────────────────────────────────────────────────────────────
+
+/** Enough options for any real ride; stops one user flooding a ride. */
+export const MAX_SLOTS_PER_RIDE = 12
+const SLOT_HORIZON = 365 * 24 * 3600_000
+
+/**
+ * Any signed-in rider can propose a time (the ride is shared by link; there is
+ * no membership list yet). Slots are written only here, never by the client,
+ * so the ride must exist, must not be locked, and the time must be sane.
+ */
+export async function addSlot(
+  store: Store,
+  rideId: string,
+  startsAt: number,
+  now = Date.now(),
+) {
+  const ride = await mustGetRide(store, rideId)
+  if (ride.data.status === 'locked') throw new UserFacingError('This ride is locked. Unlock it to add times')
+  if (!Number.isFinite(startsAt) || startsAt < now) throw new UserFacingError('Pick a time in the future')
+  if (startsAt - now > SLOT_HORIZON) throw new UserFacingError('Pick a time within the next year')
+  const slots = await store.query<Slot>('slots', { rideId })
+  const existing = slots.find((s) => s.data.startsAt === startsAt)
+  if (existing) return { slotId: existing.recordId, created: false }
+  if (slots.length >= MAX_SLOTS_PER_RIDE) {
+    throw new UserFacingError(`A ride can have at most ${MAX_SLOTS_PER_RIDE} proposed times`)
+  }
+  const slotId = await store.create('slots', { rideId, startsAt: Math.round(startsAt) })
+  return { slotId, created: true }
+}
+
+/**
+ * The proposer or the organizer can withdraw a time while the ride is still
+ * being planned. Once locked, no slot changes, so `lockedStartsAt` can never
+ * drift from the slot it was copied from. Its votes go with it.
+ */
+export async function removeSlot(store: Store, callerId: string, slotId: string) {
+  if (typeof slotId !== 'string' || !slotId) throw new UserFacingError('Missing slotId')
+  const slot = await store.get<Slot>('slots', slotId)
+  if (!slot) throw new UserFacingError('That time no longer exists')
+  const ride = await mustGetRide(store, slot.data.rideId)
+  if (slot.createdBy !== callerId && ride.createdBy !== callerId) {
+    throw new UserFacingError('Only whoever proposed this time, or the organizer, can remove it')
+  }
+  if (ride.data.status === 'locked') throw new UserFacingError('Unlock the ride before removing times')
+  for (const v of await store.query<Vote>('votes', { slotId })) await store.remove('votes', v.recordId)
+  await store.remove('slots', slotId)
+  return { removed: true }
+}
 
 // ── weather ──────────────────────────────────────────────────────────────
 
@@ -299,17 +362,38 @@ export function parseBrief(text: string, validSlotIds: Set<string>) {
 
 const DAY = 24 * 3600_000
 
+/** Give up on a rider after this many failed sends for the same ride time. */
+export const REMINDER_MAX_ATTEMPTS = 5
+/** A claim older than this is presumed to be from a run that died mid-send. */
+export const REMINDER_CLAIM_TTL = 15 * 60_000
+
 /**
  * Email every rider marked "going" on locked rides starting within 24h.
- * Idempotent via `reminderSentAt`, so the cron can run as often as it likes.
+ *
+ * Delivery is tracked per rider and per ride time in `reminders`, one record
+ * per attempt. A send that fails is retried on the next tick (up to
+ * REMINDER_MAX_ATTEMPTS); a rider who RSVPs after the first run still gets
+ * one. Each attempt is claimed by creating its record first, and `uniqueOn`
+ * makes that claim atomic, so the cron and "Send now" racing each other can't
+ * both email the same rider.
+ *
+ * The guarantee is at-least-once, not exactly-once: if a run dies after the
+ * email goes out but before the attempt is marked sent, the claim expires
+ * after REMINDER_CLAIM_TTL and the rider may get a second copy. The email
+ * integration takes no idempotency key, so that window can't be closed here.
  */
 export async function sendDueReminders(store: Store, appOrigin: string, now = Date.now()) {
   const locked = await store.query<Ride>('rides', { status: 'locked' })
   let sent = 0
   for (const ride of locked) {
     const t = ride.data.lockedStartsAt
-    if (!t || ride.data.reminderSentAt || t < now || t - now > DAY) continue
-    sent += await sendReminderForRide(store, ride, appOrigin, now)
+    if (!t || t < now || t - now > DAY) continue
+    try {
+      sent += (await sendReminderForRide(store, ride, appOrigin, now)).sent
+    } catch (e) {
+      // One bad ride must not stop the others; it is retried next tick.
+      console.error(`[reminders] ride ${ride.recordId} failed: ${String(e)}`)
+    }
   }
   return { sent }
 }
@@ -320,16 +404,27 @@ export async function sendReminderForRide(
   appOrigin: string,
   now = Date.now(),
 ) {
+  const startsAt = ride.data.lockedStartsAt
+  if (!startsAt) return { sent: 0, failed: 0, pending: 0 }
+
   const rsvps = await store.query<Rsvp>('rsvps', { rideId: ride.recordId })
-  const going = rsvps.filter((r) => r.data.status === 'going' && r.data.userId)
-  const emails: string[] = []
-  for (const r of going) {
-    const user = await store.get<{ email?: string }>('users', r.data.userId!)
-    if (user?.data.email) emails.push(user.data.email)
+  const going = [...new Set(rsvps.filter((r) => r.data.status === 'going').map((r) => r.data.userId))].filter(
+    (id): id is string => !!id,
+  )
+  const attempts = await store.query<Reminder>('reminders', { rideId: ride.recordId, startsAt })
+  const byRider = new Map<string, Array<Envelope<Reminder>>>()
+  for (const a of attempts) byRider.set(a.data.riderId, [...(byRider.get(a.data.riderId) ?? []), a])
+
+  const due: Array<{ riderId: string; attempt: number }> = []
+  for (const riderId of going) {
+    const mine = byRider.get(riderId) ?? []
+    if (mine.some((a) => a.data.status === 'sent')) continue
+    if (mine.length >= REMINDER_MAX_ATTEMPTS) continue
+    const inFlight = mine.some((a) => a.data.status === 'sending' && now - a.data.claimedAt < REMINDER_CLAIM_TTL)
+    if (inFlight) continue
+    due.push({ riderId, attempt: Math.max(0, ...mine.map((a) => a.data.attempt)) + 1 })
   }
-  // Mark first so a crash mid-send can't double-email on the next tick.
-  await store.update('rides', ride.recordId, { reminderSentAt: now })
-  if (emails.length === 0) return 0
+  if (due.length === 0) return { sent: 0, failed: 0, pending: 0 }
 
   const when = ride.data.lockedStartsAt ? formatTime(ride.data.lockedStartsAt, ride.data.timezone) : ''
   const stop =
@@ -350,20 +445,45 @@ export async function sendReminderForRide(
   ].filter((l, i, a) => l !== '' || a[i - 1] !== '')
 
   // One email per rider so nobody sees anyone else's address.
-  let delivered = 0
-  for (const to of emails) {
+  let sent = 0
+  let failed = 0
+  for (const { riderId, attempt } of due) {
+    const user = await store.get<{ email?: string }>('users', riderId)
+    const to = user?.data.email
+    if (!to) continue // nothing to retry until they have an address
+
+    let attemptId: string
+    try {
+      attemptId = await store.create('reminders', {
+        rideId: ride.recordId,
+        riderId,
+        startsAt,
+        attempt,
+        status: 'sending',
+        claimedAt: now,
+      })
+    } catch (e) {
+      if (e instanceof DuplicateRecordError) continue // another run claimed this attempt
+      throw e
+    }
+
     try {
       await store.integration('email/send', {
         to,
         subject: `Coming up: ${ride.data.title}`,
         text: lines.join('\n'),
       })
-      delivered++
     } catch (e) {
-      console.error(`[reminders] send failed for ride ${ride.recordId}: ${String(e)}`)
+      failed++
+      console.error(`[reminders] send failed for ride ${ride.recordId} (attempt ${attempt}): ${String(e)}`)
+      await store.update('reminders', attemptId, { status: 'failed', error: String(e).slice(0, 300) })
+      continue
     }
+    await store.update('reminders', attemptId, { status: 'sent' })
+    sent++
   }
-  return delivered
+  if (sent > 0) await store.update('rides', ride.recordId, { reminderSentAt: now })
+  return { sent, failed, pending: due.length }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────
