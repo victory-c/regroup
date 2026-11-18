@@ -9,6 +9,7 @@ import { StopPanel } from '../../../../components/ride/StopPanel'
 import { RsvpPanel } from '../../../../components/ride/RsvpPanel'
 import { callAction } from '../../../../lib/actions'
 import { PACE_LABEL } from '../../../../lib/format'
+import { briefBasis, isBriefStale } from '../../../../lib/brief-basis'
 import type { Ride, Rsvp, Slot, Vote } from '../../../../lib/types'
 
 const FORECAST_STALE_MS = 3 * 3600_000
@@ -69,6 +70,15 @@ export default function RidePage() {
     const seen = new Set<string>()
     return peers.filter((p) => (seen.has(p.userId) ? false : (seen.add(p.userId), true)))
   }, [peers])
+
+  const briefStale = useMemo(
+    () =>
+      !!ride?.briefing &&
+      // Empty-while-loading lists would look like "everything changed".
+      [slots.status, votes.status, rsvps.status].every((st) => st === 'ready') &&
+      isBriefStale(ride.briefing, briefBasis(ride, slots.records, votes.records, rsvps.records)),
+    [ride, slots.status, votes.status, rsvps.status, slots.records, votes.records, rsvps.records],
+  )
 
   const focusSlot = ride?.lockedSlotId ?? ride?.briefing?.recommendedSlotId ?? undefined
   const focusStart = slots.records.find((s) => s.recordId === focusSlot)?.data.startsAt
@@ -174,6 +184,7 @@ export default function RidePage() {
           )}
           <BriefPanel
             briefing={ride.briefing}
+            stale={briefStale}
             isOrganizer={isOrganizer}
             hasSlots={slots.records.length > 0}
             generating={busy === 'brief'}

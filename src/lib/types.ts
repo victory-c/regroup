@@ -23,6 +23,8 @@ export interface Briefing {
   warnings: string[]
   generatedAt: number
   model: string
+  /** `briefBasis()` of the ride when this was written; a mismatch means it's out of date. */
+  basis?: string
 }
 
 export interface Ride {

@@ -11,7 +11,7 @@ Live: https://regroup.app.space · Built on [DeepSpace](https://docs.deep.space)
 3. **Vote live**: In / Maybe / Out per slot. Tallies, voter avatars and "who's here now" update in realtime for everyone on the page.
 4. **Weather per slot**: each slot is scored 0–100 (Great / Good / Iffy / Rough) from the forecast across the *whole ride window*, not just the start hour, with the reason shown inline ("light rain, cold, feels like 41°F").
 5. **Regroup stop**: the organizer searches ("coffee", "bakery") near the start and picks one. The opening hours are shown for the ride's day.
-6. **AI ride brief**: Claude weighs availability, weather and the stop's hours, recommends a slot, and writes what to bring plus warnings. The recommended slot is highlighted.
+6. **AI ride brief**: Claude weighs availability, weather and the stop's hours, recommends a slot, and writes what to bring plus warnings. The recommended slot is highlighted. If votes, RSVPs or the plan change afterwards, the brief is flagged out of date on the page and left out of reminder emails until it's rewritten.
 7. **Lock and RSVP**: the organizer locks a slot, riders RSVP, and a cron job emails "going" riders within 24h of the start (or the organizer hits "Send now").
 
 ## DeepSpace pieces used, and why
@@ -88,4 +88,4 @@ npx deepspace deploy
 - **Groups/clubs** with a `team` permission level, so rides are visible to a club rather than every signed-in user.
 - **Wind** from a provider that has it, factored into the score ("20 mph headwind on the way home").
 - **Calendar invite** on lock via the per-user Google Calendar integration.
-- A **"brief is stale"** hint when votes change after the brief was generated.
+- **Stop hours checked in code**, not by the model: work out open/closed from the stop's hours, the ride's timezone and the expected arrival, and hand the model only the result.

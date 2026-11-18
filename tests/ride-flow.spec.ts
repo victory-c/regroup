@@ -102,6 +102,11 @@ test('two riders plan, vote, lock and RSVP in realtime', async ({ users }) => {
     await expect(b.page.getByTestId('brief-headline')).toBeVisible({
       timeout: 60_000,
     })
+    // A fresh brief isn't flagged; once B backs out, it's out of date for both.
+    await expect(a.page.getByTestId('brief-stale')).toHaveCount(0)
+    await b.page.getByRole('button', { name: 'Can’t make it' }).click()
+    await expect(a.page.getByTestId('brief-stale')).toBeVisible({ timeout: 15_000 })
+    await expect(b.page.getByTestId('brief-stale')).toBeVisible({ timeout: 15_000 })
   } finally {
     if (rideId) {
       const r = await action(a.page, 'deleteRide', { rideId })
