@@ -26,9 +26,12 @@ export const integrations: Record<
 > = {
   google: { billing: 'user' },
   composio: { billing: 'user' },
-  // Regroup's integrations are owner-billed but only ever called from server
-  // actions / cron (never directly from the browser), and every action
-  // requires a signed-in caller plus organizer checks and cooldowns.
+  // Regroup's integrations are owner-billed. Forecast, places search, the AI
+  // brief and email are only ever called from server actions / cron, behind a
+  // signed-in caller plus organizer checks and cooldowns. The one browser
+  // call is `openweathermap/geocoding` in NewRideModal (the start-area lookup
+  // when planning a ride): it goes through the platform proxy, still needs a
+  // signed-in user, and its result is only a suggestion the user picks from.
   openweathermap: { billing: 'developer' },
   serpapi: { billing: 'developer' },
   anthropic: { billing: 'developer' },
